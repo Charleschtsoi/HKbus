@@ -50,44 +50,46 @@
     </header>
 
     <dialog id="account-dialog" class="account-dialog">
-      <form method="dialog" id="account-form" class="account-sheet">
+      <div class="account-sheet">
         <div class="account-sheet-head">
           <h2 id="account-dialog-title" data-i18n="accountTitle">帳戶（可選）</h2>
-          <button type="submit" value="cancel" class="ghost" data-i18n="close">關閉</button>
+          <button type="button" id="account-close-btn" class="ghost" data-i18n="close">關閉</button>
         </div>
         <p id="account-dialog-lead" class="muted account-lead" data-i18n="accountLead">
           登入後可同步常用車站。唔登入都可以用，常用車站會留喺呢部裝置。
         </p>
         <p id="account-mode-hint" class="account-mode-hint"></p>
 
-        <div id="account-signed-out">
-          <label class="account-field">
-            <span data-i18n="email">電郵</span>
-            <input id="account-email" type="email" autocomplete="username" required />
-          </label>
-          <label class="account-field">
-            <span data-i18n="password">密碼</span>
-            <input id="account-password" type="password" autocomplete="current-password" minlength="6" required />
-          </label>
-          <label class="account-check">
-            <input id="account-merge-guest" type="checkbox" checked />
-            <span data-i18n="mergeGuest">登入時合併呢部裝置已儲存嘅常用車站</span>
-          </label>
-          <p id="account-error" class="account-error" hidden></p>
-          <div class="account-actions">
-            <button type="button" id="account-login-btn" data-i18n="signIn">登入</button>
-            <button type="button" id="account-register-btn" class="ghost" data-i18n="register">建立帳戶</button>
+        <form id="account-form" novalidate>
+          <div id="account-signed-out">
+            <label class="account-field">
+              <span data-i18n="email">電郵</span>
+              <input id="account-email" type="email" autocomplete="username" />
+            </label>
+            <label class="account-field">
+              <span data-i18n="password">密碼</span>
+              <input id="account-password" type="password" autocomplete="current-password" minlength="6" />
+            </label>
+            <label class="account-check">
+              <input id="account-merge-guest" type="checkbox" checked />
+              <span data-i18n="mergeGuest">登入時合併呢部裝置已儲存嘅常用車站</span>
+            </label>
+            <p id="account-error" class="account-error" hidden></p>
+            <div class="account-actions">
+              <button type="submit" id="account-login-btn" data-i18n="signIn">登入</button>
+              <button type="button" id="account-register-btn" class="ghost" data-i18n="register">建立帳戶</button>
+            </div>
           </div>
-        </div>
 
-        <div id="account-signed-in" hidden>
-          <p id="account-user-line" class="account-user-line"></p>
-          <p id="account-sync-line" class="muted small"></p>
-          <div class="account-actions">
-            <button type="button" id="account-logout-btn" class="ghost" data-i18n="signOut">登出</button>
+          <div id="account-signed-in" hidden>
+            <p id="account-user-line" class="account-user-line"></p>
+            <p id="account-sync-line" class="muted small"></p>
+            <div class="account-actions">
+              <button type="button" id="account-logout-btn" class="ghost" data-i18n="signOut">登出</button>
+            </div>
           </div>
-        </div>
-      </form>
+        </form>
+      </div>
     </dialog>
 
     <div class="map-shell" id="map-shell">

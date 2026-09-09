@@ -3,7 +3,7 @@ const CTB_API = "https://rt.data.gov.hk/v2/transport/citybus";
 const WAYPOINTS_URL = "https://hkbus.github.io/route-waypoints";
 const FAVORITES_KEY = "hk-arrivals-favorites";
 const LANG_KEY = "hk-arrivals-lang";
-const STOPS_KEY = "hk-arrivals-stops-v2";
+const STOPS_KEY = "hk-arrivals-stops-v3";
 const HK_CENTER = [22.3193, 114.1694];
 const NEARBY_LIMIT = 10;
 const NEARBY_RADIUS_M = 500;
@@ -240,6 +240,7 @@ const els = {
   accountLoginBtn: document.getElementById("account-login-btn"),
   accountRegisterBtn: document.getElementById("account-register-btn"),
   accountLogoutBtn: document.getElementById("account-logout-btn"),
+  accountCloseBtn: document.getElementById("account-close-btn"),
   accountUserLine: document.getElementById("account-user-line"),
   accountSyncLine: document.getElementById("account-sync-line"),
   favoritesSyncNote: document.getElementById("favorites-sync-note"),
@@ -660,6 +661,44 @@ async function hydrateCtbStopDetails(stops) {
   return stops;
 }
 
+async function hydrateKmbStopDetails(stops) {
+  const missing = stops.filter((s) => !s.detail);
+  if (!missing.length) return stops;
+  const queue = [...missing];
+  const workers = Array.from({ length: Math.min(CTB_ETA_CONCURRENCY, queue.length) }, async () => {
+    while (queue.length) {
+      const row = queue.shift();
+      try {
+        const json = await fetchJson(`${KMB_API}/stop/${encodeURIComponent(row.stop)}`);
+        const data = json.data || {};
+        if (!data.stop) continue;
+        const detail = {
+          co: "KMB",
+          stop: data.stop,
+          name_tc: data.name_tc,
+          name_en: data.name_en,
+          lat: Number(data.lat),
+          long: Number(data.long),
+          routes: null,
+        };
+        state.stopsById.set(stopKey("KMB", detail.stop), detail);
+        row.detail = detail;
+      } catch {
+        /* ignore missing stop */
+      }
+    }
+  });
+  await Promise.all(workers);
+  return stops;
+}
+
+async function hydrateMissingStopDetails(stops) {
+  const kmb = stops.filter((s) => companyOf(s) === "KMB");
+  const ctb = stops.filter((s) => companyOf(s) === "CTB");
+  await Promise.all([hydrateKmbStopDetails(kmb), hydrateCtbStopDetails(ctb)]);
+  return stops;
+}
+
 async function selectVariant(variant) {
   state.selectedVariant = variant;
   renderVariants();
@@ -675,7 +714,7 @@ async function selectVariant(variant) {
   try {
     await loadAllStops();
     let rows = await fetchRouteStops(variant);
-    if (companyOf(variant) === "CTB") rows = await hydrateCtbStopDetails(rows);
+    rows = await hydrateMissingStopDetails(rows);
     state.stops = rows;
     renderStops();
     await drawRouteOnMap(state.stops);
@@ -941,15 +980,28 @@ function inHongKong(lat, lng) {
   return lat >= 22.13 && lat <= 22.57 && lng >= 113.82 && lng <= 114.45;
 }
 
+function cacheLooksComplete(stops) {
+  if (!Array.isArray(stops) || stops.length < 1000) return false;
+  let kmb = 0;
+  let ctb = 0;
+  for (const stop of stops) {
+    const co = companyOf(stop);
+    if (co === "KMB") kmb += 1;
+    else if (co === "CTB") ctb += 1;
+  }
+  // Reject partial caches (e.g. only Citybus) that leave KMB route stops nameless.
+  return kmb > 1000 && ctb > 100;
+}
+
 async function loadAllStops() {
-  if (state.allStops.length) return;
+  if (state.allStops.length && cacheLooksComplete(state.allStops)) return;
   if (state.stopsLoadPromise) return state.stopsLoadPromise;
 
   state.stopsLoadPromise = (async () => {
     try {
       const cached = JSON.parse(localStorage.getItem(STOPS_KEY) || "null");
       const age = cached?.savedAt ? Date.now() - cached.savedAt : Infinity;
-      if (cached?.stops?.length && age < 20 * 60 * 60 * 1000) {
+      if (cacheLooksComplete(cached?.stops) && age < 20 * 60 * 60 * 1000) {
         state.allStops = cached.stops;
         state.stopsById = new Map(cached.stops.map((s) => [stopKey(s.co, s.stop), s]));
         return;
@@ -976,6 +1028,8 @@ async function loadAllStops() {
           routes: null,
         });
       }
+    } else {
+      console.error(results[0].reason);
     }
     if (results[1].status === "fulfilled") {
       for (const s of results[1].value || []) {
@@ -989,15 +1043,25 @@ async function loadAllStops() {
           routes: Array.isArray(s.routes) ? s.routes : [],
         });
       }
+    } else {
+      console.error(results[1].reason);
     }
     if (!stops.length) throw new Error("No stops loaded");
 
     state.allStops = stops;
     state.stopsById = new Map(stops.map((s) => [stopKey(s.co, s.stop), s]));
-    try {
-      localStorage.setItem(STOPS_KEY, JSON.stringify({ savedAt: Date.now(), stops }));
-    } catch {
-      /* storage full */
+    if (cacheLooksComplete(stops)) {
+      try {
+        localStorage.setItem(STOPS_KEY, JSON.stringify({ savedAt: Date.now(), stops }));
+      } catch {
+        /* storage full */
+      }
+    } else {
+      try {
+        localStorage.removeItem(STOPS_KEY);
+      } catch {
+        /* ignore */
+      }
     }
   })();
 
@@ -1816,14 +1880,21 @@ els.backBtn.addEventListener("click", () => {
 
 els.favBtn.addEventListener("click", toggleFavorite);
 els.accountBtn?.addEventListener("click", openAccountDialog);
-els.accountLoginBtn?.addEventListener("click", () => handleAccountAuth("login"));
+els.accountCloseBtn?.addEventListener("click", () => closeAccountDialog());
+els.accountLoginBtn?.addEventListener("click", (event) => {
+  event.preventDefault();
+  handleAccountAuth("login");
+});
 els.accountRegisterBtn?.addEventListener("click", () => handleAccountAuth("register"));
 els.accountLogoutBtn?.addEventListener("click", () => handleAccountLogout());
 els.accountForm?.addEventListener("submit", (event) => {
-  const value = event.submitter?.value;
-  if (value === "cancel") return;
   event.preventDefault();
   handleAccountAuth("login");
+});
+els.accountDialog?.addEventListener("cancel", (event) => {
+  // Allow Escape / backdrop close without native form validation.
+  event.preventDefault();
+  closeAccountDialog();
 });
 els.locateBtn.addEventListener("click", () => requestLocation(true));
 els.expandMapBtn?.addEventListener("click", () => toggleMapExpanded());
