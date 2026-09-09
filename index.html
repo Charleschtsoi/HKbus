@@ -30,12 +30,27 @@
       </div>
     </header>
 
-    <div class="map-shell">
+    <div class="map-shell" id="map-shell">
       <div id="map" role="img" aria-label="地圖"></div>
-      <button type="button" id="locate-btn" class="locate-btn" data-i18n="locate">定位</button>
+      <div class="map-controls">
+        <button type="button" id="expand-map-btn" class="map-btn" aria-pressed="false">
+          <span class="map-btn-icon" aria-hidden="true">⛶</span>
+          <span data-i18n="expandMap">放大地圖</span>
+        </button>
+        <button type="button" id="locate-btn" class="map-btn" data-i18n="locate">定位</button>
+      </div>
+      <div id="map-caption" class="map-caption" hidden>
+        <div class="map-caption-text">
+          <strong id="map-caption-title"></strong>
+          <span id="map-caption-sub" class="muted"></span>
+        </div>
+        <button type="button" id="collapse-map-btn" class="ghost map-caption-close" data-i18n="collapseMap">
+          收起
+        </button>
+      </div>
     </div>
 
-    <main>
+    <main id="app-main">
       <div class="tabs" role="tablist">
         <button type="button" id="tab-nearby" class="tab active" data-tab="nearby" data-i18n="tabNearby">
           附近
@@ -82,6 +97,9 @@
             <button type="button" id="back-btn" class="ghost" data-i18n="back">← 返回路線</button>
             <h2 id="stops-title"></h2>
           </div>
+          <button type="button" id="view-route-map-btn" class="view-route-map-btn" data-i18n="viewRouteMap">
+            放大睇路線
+          </button>
           <div id="stop-list" class="stop-list"></div>
         </section>
 

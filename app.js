@@ -15,6 +15,11 @@ const I18N = {
     tabNearby: "附近",
     tabSearch: "搜尋",
     locate: "定位",
+    expandMap: "放大地圖",
+    collapseMap: "收起地圖",
+    mapNearbyHint: "附近車站地圖",
+    mapRouteHint: "全螢幕睇清楚成條路線",
+    viewRouteMap: "放大睇路線",
     searchLabel: "路線編號",
     search: "搜尋",
     favorites: "常用車站",
@@ -54,6 +59,11 @@ const I18N = {
     tabNearby: "Nearby",
     tabSearch: "Search",
     locate: "Locate me",
+    expandMap: "Expand map",
+    collapseMap: "Collapse map",
+    mapNearbyHint: "Nearby stops map",
+    mapRouteHint: "See the full route clearly",
+    viewRouteMap: "Expand route map",
     searchLabel: "Route number",
     search: "Search",
     favorites: "Saved stops",
@@ -112,6 +122,7 @@ const state = {
   nearbyUpdatedAt: null,
   nearbyEtaPending: false,
   stopsLoadPromise: null,
+  mapExpanded: false,
 };
 
 const mapCtl = {
@@ -131,6 +142,14 @@ const els = {
   status: document.getElementById("status"),
   langBtn: document.getElementById("lang-btn"),
   locateBtn: document.getElementById("locate-btn"),
+  expandMapBtn: document.getElementById("expand-map-btn"),
+  collapseMapBtn: document.getElementById("collapse-map-btn"),
+  mapShell: document.getElementById("map-shell"),
+  mapCaption: document.getElementById("map-caption"),
+  mapCaptionTitle: document.getElementById("map-caption-title"),
+  mapCaptionSub: document.getElementById("map-caption-sub"),
+  appMain: document.getElementById("app-main"),
+  viewRouteMapBtn: document.getElementById("view-route-map-btn"),
   nearbyPanel: document.getElementById("nearby-panel"),
   nearbyStatus: document.getElementById("nearby-status"),
   nearbyMeta: document.getElementById("nearby-meta"),
@@ -223,6 +242,7 @@ function applyLang() {
   renderNearbyList();
   renderNearbyMeta();
   refreshMapLabels();
+  updateMapExpandUi();
 }
 
 async function fetchJson(url) {
@@ -327,6 +347,8 @@ async function selectVariant(variant) {
   const { dest } = origDest(variant);
   els.stopsTitle.textContent = `${variant.route} ${t("toward")} ${dest}`;
   els.stopList.innerHTML = `<p class="muted">${t("loadingStops")}</p>`;
+  ensureViewRouteMapButton();
+  updateMapCaption();
   try {
     await loadAllStops();
     const json = await fetchJson(
@@ -339,6 +361,7 @@ async function selectVariant(variant) {
     }));
     renderStops();
     await drawRouteOnMap(state.stops);
+    updateMapCaption();
   } catch (error) {
     els.stopList.innerHTML = `<p class="muted">${t("loadError")}</p>`;
     console.error(error);
@@ -778,12 +801,108 @@ function setTab(tab) {
   els.tabSearch.classList.toggle("active", tab === "search");
   els.nearbyPanel.hidden = tab !== "nearby";
   els.searchPanel.hidden = tab !== "search";
-  requestAnimationFrame(() => mapCtl.map?.invalidateSize());
+  refreshMapAfterLayout();
+  updateMapCaption();
   if (tab === "nearby") {
     startNearbyLoop();
   } else {
     stopNearbyLoop();
   }
+}
+
+function refreshMapAfterLayout() {
+  requestAnimationFrame(() => {
+    mapCtl.map?.invalidateSize();
+    requestAnimationFrame(() => {
+      mapCtl.map?.invalidateSize();
+      fitMapToContext({ animate: false });
+    });
+  });
+}
+
+function currentRouteCaption() {
+  if (state.selectedVariant) {
+    const { dest } = origDest(state.selectedVariant);
+    return {
+      title: `${state.selectedVariant.route} ${t("toward")} ${dest}`,
+      sub: t("mapRouteHint"),
+    };
+  }
+  if (state.tab === "nearby" && state.nearbyStops.length) {
+    return { title: t("nearbyTitle"), sub: t("mapNearbyHint") };
+  }
+  return { title: t("title"), sub: t("mapNearbyHint") };
+}
+
+function updateMapCaption() {
+  if (!els.mapCaption) return;
+  const { title, sub } = currentRouteCaption();
+  els.mapCaptionTitle.textContent = title;
+  els.mapCaptionSub.textContent = sub;
+  els.mapCaption.hidden = !state.mapExpanded;
+}
+
+function updateMapExpandUi() {
+  const expanded = state.mapExpanded;
+  document.body.classList.toggle("map-expanded", expanded);
+  if (els.expandMapBtn) {
+    els.expandMapBtn.setAttribute("aria-pressed", expanded ? "true" : "false");
+    const label = expanded ? t("collapseMap") : t("expandMap");
+    const textNode = els.expandMapBtn.querySelector("[data-i18n]");
+    if (textNode) {
+      textNode.dataset.i18n = expanded ? "collapseMap" : "expandMap";
+      textNode.textContent = label;
+    }
+    const icon = els.expandMapBtn.querySelector(".map-btn-icon");
+    if (icon) icon.textContent = expanded ? "⤓" : "⛶";
+  }
+  if (els.collapseMapBtn) els.collapseMapBtn.textContent = t("collapseMap");
+  updateMapCaption();
+  ensureViewRouteMapButton();
+}
+
+function setMapExpanded(expanded) {
+  if (state.mapExpanded === expanded) {
+    refreshMapAfterLayout();
+    return;
+  }
+  state.mapExpanded = expanded;
+  updateMapExpandUi();
+  refreshMapAfterLayout();
+}
+
+function toggleMapExpanded() {
+  setMapExpanded(!state.mapExpanded);
+}
+
+function fitMapToContext({ animate = true } = {}) {
+  if (!mapCtl.map) return;
+  if (mapCtl.routeLine) {
+    mapCtl.map.fitBounds(mapCtl.routeLine.getBounds(), {
+      padding: state.mapExpanded ? [48, 48] : [30, 30],
+      maxZoom: state.mapExpanded ? 15 : 16,
+      animate,
+    });
+    return;
+  }
+  if (state.tab === "nearby" && state.nearbyStops.length) {
+    const bounds = [];
+    if (state.userLat != null) bounds.push([state.userLat, state.userLng]);
+    state.nearbyStops.forEach((stop) => bounds.push([stop.lat, stop.long]));
+    if (bounds.length > 1) {
+      mapCtl.map.fitBounds(bounds, {
+        padding: state.mapExpanded ? [40, 40] : [28, 28],
+        maxZoom: 17,
+        animate,
+      });
+    }
+  }
+}
+
+function ensureViewRouteMapButton() {
+  if (!els.viewRouteMapBtn) return;
+  els.viewRouteMapBtn.textContent = t("viewRouteMap");
+  els.viewRouteMapBtn.hidden = !state.selectedVariant || els.stops.hidden;
 }
 
 function userIcon() {
@@ -891,7 +1010,10 @@ function fitRouteBounds(layerOrPoints) {
     : layerOrPoints.getBounds();
   if (!bounds.isValid()) return;
   if (state.userLat != null) bounds.extend([state.userLat, state.userLng]);
-  mapCtl.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+  mapCtl.map.fitBounds(bounds, {
+    padding: state.mapExpanded ? [48, 48] : [30, 30],
+    maxZoom: state.mapExpanded ? 15 : 16,
+  });
 }
 
 function drawRouteStopMarkers(stops) {
@@ -1090,16 +1212,21 @@ async function applyPosition(lat, lng, fly = true) {
     return;
   }
 
-  setNearbyStatus(t("loadingStops"), { loading: true });
+  const softReload = state.allStops.length > 0 && state.nearbyStops.length > 0;
+  if (!softReload) setNearbyStatus(t("loadingStops"), { loading: true });
   try {
     await loadAllStops();
     if (seq !== state.nearbySeq) return;
 
+    const previousGroups = new Map(
+      state.nearbyStops.map((stop) => [stop.stop, stop.groups])
+    );
     state.nearbyStops = nearestStops(lat, lng).map((stop) => ({
       ...stop,
-      groups: null,
+      // Keep prior ETAs on soft relocate so the list never blanks while refetching.
+      groups: previousGroups.has(stop.stop) ? previousGroups.get(stop.stop) : null,
     }));
-    state.nearbyUpdatedAt = null;
+    if (!softReload) state.nearbyUpdatedAt = null;
     state.nearbyEtaPending = true;
 
     if (!state.nearbyStops.length) {
@@ -1195,15 +1322,32 @@ els.backBtn.addEventListener("click", () => {
   els.eta.hidden = true;
   state.selectedStop = null;
   clearEtaTimer();
+  ensureViewRouteMapButton();
+  updateMapCaption();
 });
 
 els.favBtn.addEventListener("click", toggleFavorite);
 els.locateBtn.addEventListener("click", () => requestLocation(true));
+els.expandMapBtn?.addEventListener("click", () => toggleMapExpanded());
+els.collapseMapBtn?.addEventListener("click", () => setMapExpanded(false));
+els.viewRouteMapBtn?.addEventListener("click", () => {
+  setMapExpanded(true);
+});
 els.tabNearby.addEventListener("click", () => setTabFromButton("nearby"));
 els.tabSearch.addEventListener("click", () => setTabFromButton("search"));
 
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.mapExpanded) setMapExpanded(false);
+});
+
+window.addEventListener("resize", () => {
+  if (!mapCtl.map) return;
+  mapCtl.map.invalidateSize();
+});
+
 initMap();
 applyLang();
+updateMapExpandUi();
 renderFavorites();
 loadRoutes().catch((error) => {
   setNearbyStatus(t("loadError"));
