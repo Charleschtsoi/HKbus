@@ -210,6 +210,11 @@ h2 {
   background: #d7e4ea;
 }
 
+#map .leaflet-container {
+  width: 100%;
+  height: 100%;
+}
+
 .map-controls {
   position: absolute;
   right: 0.85rem;
@@ -355,13 +360,14 @@ body.map-expanded .map-controls {
 @media (min-width: 900px) {
   body.map-expanded {
     --sheet-h: min(38vh, 360px);
+    --expanded-panel-w: min(420px, 42vw);
   }
 
   body.map-expanded #app-main {
     left: auto;
     right: 1rem;
     bottom: 1rem;
-    width: min(420px, 42vw);
+    width: var(--expanded-panel-w);
     max-height: calc(100dvh - var(--topbar-h) - 2rem);
     border-radius: 1.15rem;
     border: 1px solid var(--line);
@@ -369,6 +375,14 @@ body.map-expanded .map-controls {
 
   body.map-expanded .map-shell {
     height: calc(100dvh - var(--topbar-h));
+  }
+
+  body.map-expanded .map-controls {
+    right: calc(var(--expanded-panel-w) + 1.75rem);
+  }
+
+  body.map-expanded .map-caption {
+    right: calc(var(--expanded-panel-w) + 1.75rem);
   }
 }
 
