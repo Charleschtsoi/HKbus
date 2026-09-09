@@ -8,6 +8,7 @@ const HK_CENTER = [22.3193, 114.1694];
 const NEARBY_LIMIT = 10;
 const NEARBY_RADIUS_M = 500;
 const NEARBY_FALLBACK_M = 1200;
+const DISTANCE_DISPLAY_CAP_M = 400;
 const CTB_ETA_CONCURRENCY = 6;
 
 const I18N = {
@@ -174,7 +175,7 @@ const state = {
   nearbyUpdatedAt: null,
   nearbyEtaPending: false,
   stopsLoadPromise: null,
-  mapExpanded: false,
+  mapExpanded: true,
 };
 
 const mapCtl = {
@@ -760,7 +761,7 @@ function renderStops() {
     const name = nearest.stop.detail ? nameOf(nearest.stop.detail) : nearest.stop.stop;
     banner.innerHTML = `<div class="closest-badge">${escapeHtml(t("closest"))}</div>
       <div><strong>${escapeHtml(name)}</strong></div>
-      <div class="muted">${escapeHtml(t("closestHint"))} · ${Math.round(nearest.distance)} ${escapeHtml(t("metres"))}</div>`;
+      <div class="muted">${escapeHtml(t("closestHint"))} · ${escapeHtml(formatDistanceLabel(nearest.distance))}</div>`;
     banner.addEventListener("click", () => selectStop(nearest.stop));
     els.stopList.appendChild(banner);
   }
@@ -775,7 +776,9 @@ function renderStops() {
     if (state.selectedStop && state.selectedStop.stop === stop.stop) btn.classList.add("active");
     const label = stop.detail ? nameOf(stop.detail) : stop.stop;
     const distLabel =
-      distance == null ? "" : `<span class="distance">${Math.round(distance)} ${escapeHtml(t("metres"))}${isClosest ? ` · ${escapeHtml(t("closest"))}` : ""}</span>`;
+      distance == null
+        ? ""
+        : `<span class="distance">${escapeHtml(formatDistanceLabel(distance))}${isClosest ? ` · ${escapeHtml(t("closest"))}` : ""}</span>`;
     btn.innerHTML = `<div class="stop-row"><span><strong>${escapeHtml(stop.seq)}.</strong> ${escapeHtml(label)}</span>${distLabel}</div>`;
     btn.addEventListener("click", () => selectStop(stop));
     els.stopList.appendChild(btn);
@@ -873,6 +876,14 @@ function formatWait(mins) {
   if (mins == null) return { label: t("noEta"), unit: "" };
   if (mins <= 0) return { label: t("arriving"), unit: "" };
   return { label: String(mins), unit: t("minutes") };
+}
+
+function formatDistanceLabel(metres) {
+  if (!Number.isFinite(metres)) return "";
+  const rounded = Math.round(metres);
+  // Far-away figures like 9500m aren't useful for walking to a stop.
+  if (rounded > DISTANCE_DISPLAY_CAP_M) return `>${DISTANCE_DISPLAY_CAP_M} ${t("metres")}`;
+  return `${rounded} ${t("metres")}`;
 }
 
 async function loadEta() {
@@ -1185,7 +1196,7 @@ function nearestStops(lat, lng) {
   if (picked.length < 3) {
     picked = ranked.filter((s) => s.distance <= NEARBY_FALLBACK_M).slice(0, NEARBY_LIMIT);
   }
-  if (!picked.length) picked = ranked.slice(0, NEARBY_LIMIT);
+  // Never fall back to city-wide stops (e.g. 9500m away) — empty is better.
   return picked;
 }
 
@@ -1202,7 +1213,6 @@ function renderNearbyList() {
     card.dataset.stopId = stopId;
     if (state.selectedNearbyStopId === stopId) card.classList.add("active");
     const name = nameOf(stop);
-    const metres = Math.round(stop.distance);
     const etasLoading = stop.groups == null;
     const routes = (stop.groups || [])
       .filter((group) => group.nextMins != null)
@@ -1233,7 +1243,7 @@ function renderNearbyList() {
     }
     card.innerHTML = `<header>
         <strong>${escapeHtml(name)}</strong>
-        <span class="distance">${metres} ${escapeHtml(t("metres"))} · ${escapeHtml(companyLabel(stop.co))}</span>
+        <span class="distance">${escapeHtml(formatDistanceLabel(stop.distance))} · ${escapeHtml(companyLabel(stop.co))}</span>
       </header>
       <div class="eta-list">${routesHtml}</div>`;
     card.querySelector("header").addEventListener("click", () => {
