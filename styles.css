@@ -175,6 +175,66 @@ button.ghost {
   color: var(--muted);
 }
 
+.status.is-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.status.is-loading::before {
+  content: "";
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--sea) 25%, transparent);
+  border-top-color: var(--sea);
+  animation: spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+
+.nearby-meta {
+  margin: -0.35rem 0 0.75rem;
+  min-height: 1.1em;
+}
+
+.eta-skeleton {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.15rem 0;
+}
+
+.skeleton-line {
+  height: 0.85rem;
+  border-radius: 0.35rem;
+  background: linear-gradient(
+    90deg,
+    rgba(11, 79, 108, 0.08) 0%,
+    rgba(11, 79, 108, 0.16) 50%,
+    rgba(11, 79, 108, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+.skeleton-line.short {
+  width: 62%;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
 .variant-list,
 .stop-list,
 .eta-list,

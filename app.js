@@ -28,6 +28,8 @@ const I18N = {
     locatingError: "未能取得位置。請檢查系統定位設定後再試。",
     tooFar: "你而家唔喺香港附近。地圖會顯示香港，你仍然可以搜路線。",
     noNearby: "附近未找到車站。試下走近多啲，或者用搜尋。",
+    loadingEtas: "載入到站時間中…",
+    refreshing: "更新中…",
     nearbyTitle: "附近車站",
     noRoute: "找不到呢條路線。試下 1A、104、B1。",
     pickDirection: "選擇方向",
@@ -65,6 +67,8 @@ const I18N = {
     locatingError: "Could not read your location. Check system location settings and try again.",
     tooFar: "You do not appear to be near Hong Kong. The map stays on HK; you can still search routes.",
     noNearby: "No stops nearby. Walk closer, or search a route.",
+    loadingEtas: "Loading arrival times…",
+    refreshing: "Updating…",
     nearbyTitle: "Nearby stops",
     noRoute: "No matching route. Try 1A, 104, or B1.",
     pickDirection: "Choose a direction",
@@ -104,6 +108,10 @@ const state = {
   nearbyStops: [],
   selectedNearbyStopId: null,
   watchId: null,
+  nearbySeq: 0,
+  nearbyUpdatedAt: null,
+  nearbyEtaPending: false,
+  stopsLoadPromise: null,
 };
 
 const mapCtl = {
@@ -125,6 +133,7 @@ const els = {
   locateBtn: document.getElementById("locate-btn"),
   nearbyPanel: document.getElementById("nearby-panel"),
   nearbyStatus: document.getElementById("nearby-status"),
+  nearbyMeta: document.getElementById("nearby-meta"),
   nearbyList: document.getElementById("nearby-list"),
   searchPanel: document.getElementById("search-panel"),
   tabNearby: document.getElementById("tab-nearby"),
@@ -212,6 +221,7 @@ function applyLang() {
   if (state.stops.length) renderStops();
   if (state.selectedStop) renderEtaHeading();
   renderNearbyList();
+  renderNearbyMeta();
   refreshMapLabels();
 }
 
@@ -232,9 +242,36 @@ function setStatus(text) {
   els.status.textContent = text;
 }
 
-function setNearbyStatus(text) {
+function setNearbyStatus(text, { loading = false } = {}) {
   els.nearbyStatus.hidden = !text;
   els.nearbyStatus.textContent = text;
+  els.nearbyStatus.classList.toggle("is-loading", Boolean(text) && loading);
+}
+
+function renderNearbyMeta() {
+  if (!els.nearbyMeta) return;
+  if (!state.nearbyStops.length) {
+    els.nearbyMeta.hidden = true;
+    els.nearbyMeta.textContent = "";
+    return;
+  }
+  if (state.nearbyEtaPending && !state.nearbyUpdatedAt) {
+    els.nearbyMeta.hidden = false;
+    els.nearbyMeta.textContent = t("loadingEtas");
+    return;
+  }
+  if (state.nearbyEtaPending && state.nearbyUpdatedAt) {
+    els.nearbyMeta.hidden = false;
+    els.nearbyMeta.textContent = t("refreshing");
+    return;
+  }
+  if (state.nearbyUpdatedAt) {
+    els.nearbyMeta.hidden = false;
+    els.nearbyMeta.textContent = `${t("updated")} ${formatClock(state.nearbyUpdatedAt.toISOString())}`;
+    return;
+  }
+  els.nearbyMeta.hidden = true;
+  els.nearbyMeta.textContent = "";
 }
 
 function searchRoutes(query) {
@@ -544,31 +581,41 @@ function inHongKong(lat, lng) {
 
 async function loadAllStops() {
   if (state.allStops.length) return;
-  try {
-    const cached = JSON.parse(localStorage.getItem(STOPS_KEY) || "null");
-    const age = cached?.savedAt ? Date.now() - cached.savedAt : Infinity;
-    if (cached?.stops?.length && age < 20 * 60 * 60 * 1000) {
-      state.allStops = cached.stops;
-      state.stopsById = new Map(cached.stops.map((s) => [s.stop, s]));
-      return;
+  if (state.stopsLoadPromise) return state.stopsLoadPromise;
+
+  state.stopsLoadPromise = (async () => {
+    try {
+      const cached = JSON.parse(localStorage.getItem(STOPS_KEY) || "null");
+      const age = cached?.savedAt ? Date.now() - cached.savedAt : Infinity;
+      if (cached?.stops?.length && age < 20 * 60 * 60 * 1000) {
+        state.allStops = cached.stops;
+        state.stopsById = new Map(cached.stops.map((s) => [s.stop, s]));
+        return;
+      }
+    } catch {
+      /* ignore bad cache */
     }
-  } catch {
-    /* ignore bad cache */
-  }
-  const json = await fetchJson(`${API}/stop`);
-  const stops = (json.data || []).map((s) => ({
-    stop: s.stop,
-    name_tc: s.name_tc,
-    name_en: s.name_en,
-    lat: Number(s.lat),
-    long: Number(s.long),
-  }));
-  state.allStops = stops;
-  state.stopsById = new Map(stops.map((s) => [s.stop, s]));
+    const json = await fetchJson(`${API}/stop`);
+    const stops = (json.data || []).map((s) => ({
+      stop: s.stop,
+      name_tc: s.name_tc,
+      name_en: s.name_en,
+      lat: Number(s.lat),
+      long: Number(s.long),
+    }));
+    state.allStops = stops;
+    state.stopsById = new Map(stops.map((s) => [s.stop, s]));
+    try {
+      localStorage.setItem(STOPS_KEY, JSON.stringify({ savedAt: Date.now(), stops }));
+    } catch {
+      /* storage full */
+    }
+  })();
+
   try {
-    localStorage.setItem(STOPS_KEY, JSON.stringify({ savedAt: Date.now(), stops }));
-  } catch {
-    /* storage full */
+    await state.stopsLoadPromise;
+  } finally {
+    state.stopsLoadPromise = null;
   }
 }
 
@@ -598,20 +645,40 @@ function groupStopEta(rows) {
     .sort((a, b) => (a.nextMins ?? 9999) - (b.nextMins ?? 9999));
 }
 
-async function refreshNearbyEtas() {
-  const results = await Promise.all(
-    state.nearbyStops.map(async (stop) => {
-      try {
-        const json = await fetchJson(`${API}/stop-eta/${stop.stop}`);
-        return { ...stop, groups: groupStopEta(json.data || []) };
-      } catch {
-        return { ...stop, groups: [] };
-      }
-    })
-  );
-  state.nearbyStops = results;
-  renderNearbyList();
-  plotNearbyStops();
+async function refreshNearbyEtas(seq = state.nearbySeq) {
+  if (!state.nearbyStops.length) return;
+  state.nearbyEtaPending = true;
+  renderNearbyMeta();
+
+  const stopsSnapshot = state.nearbyStops.map((stop) => stop.stop);
+  try {
+    const results = await Promise.all(
+      state.nearbyStops.map(async (stop) => {
+        try {
+          const json = await fetchJson(`${API}/stop-eta/${stop.stop}`);
+          return { ...stop, groups: groupStopEta(json.data || []) };
+        } catch {
+          return { ...stop, groups: stop.groups ?? [] };
+        }
+      })
+    );
+
+    if (seq !== state.nearbySeq) return;
+    const stillSame =
+      results.length === stopsSnapshot.length &&
+      results.every((stop, i) => stop.stop === stopsSnapshot[i]);
+    if (!stillSame) return;
+
+    state.nearbyStops = results;
+    state.nearbyUpdatedAt = new Date();
+    renderNearbyList();
+    plotNearbyStops();
+  } finally {
+    if (seq === state.nearbySeq) {
+      state.nearbyEtaPending = false;
+      renderNearbyMeta();
+    }
+  }
 }
 
 function nearestStops(lat, lng) {
@@ -638,27 +705,38 @@ function renderNearbyList() {
   state.nearbyStops.forEach((stop) => {
     const card = document.createElement("article");
     card.className = "stop-card";
+    card.dataset.stopId = stop.stop;
     if (state.selectedNearbyStopId === stop.stop) card.classList.add("active");
     const name = nameOf(stop);
     const metres = Math.round(stop.distance);
+    const etasLoading = stop.groups == null;
     const routes = (stop.groups || [])
       .filter((group) => group.nextMins != null)
       .slice(0, 6);
-    const routesHtml = routes.length
-      ? routes
-          .map((group) => {
-            const wait = formatWait(group.nextMins);
-            const dest = state.lang === "en" ? group.dest_en : group.dest_tc;
-            return `<button type="button" class="route-row" data-route="${escapeHtml(group.route)}" data-dir="${escapeHtml(group.dir)}" data-service="${escapeHtml(group.service_type)}" data-stop="${escapeHtml(stop.stop)}">
+    let routesHtml;
+    if (etasLoading) {
+      routesHtml = `<div class="eta-skeleton" aria-hidden="true">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+          <div class="skeleton-line"></div>
+        </div>`;
+    } else if (routes.length) {
+      routesHtml = routes
+        .map((group) => {
+          const wait = formatWait(group.nextMins);
+          const dest = state.lang === "en" ? group.dest_en : group.dest_tc;
+          return `<button type="button" class="route-row" data-route="${escapeHtml(group.route)}" data-dir="${escapeHtml(group.dir)}" data-service="${escapeHtml(group.service_type)}" data-stop="${escapeHtml(stop.stop)}">
               <div>
                 <div class="route-no">${escapeHtml(group.route)}</div>
                 <div class="muted">${escapeHtml(t("toward"))} ${escapeHtml(dest)}</div>
               </div>
               <div class="minutes">${escapeHtml(wait.label)}<span>${escapeHtml(wait.unit)}</span></div>
             </button>`;
-          })
-          .join("")
-      : `<p class="muted">${t("noEta")}</p>`;
+        })
+        .join("");
+    } else {
+      routesHtml = `<p class="muted">${t("noEta")}</p>`;
+    }
     card.innerHTML = `<header>
         <strong>${escapeHtml(name)}</strong>
         <span class="distance">${metres} ${escapeHtml(t("metres"))}</span>
@@ -981,9 +1059,10 @@ function focusNearbyStop(stop) {
 
 function startNearbyLoop() {
   stopNearbyLoop();
-  if (state.nearbyStops.length) {
-    state.nearbyTimer = setInterval(refreshNearbyEtas, 30000);
-  }
+  if (!state.nearbyStops.length || state.tab !== "nearby") return;
+  state.nearbyTimer = setInterval(() => {
+    refreshNearbyEtas(state.nearbySeq).catch((error) => console.error(error));
+  }, 30000);
 }
 
 function stopNearbyLoop() {
@@ -994,25 +1073,66 @@ function stopNearbyLoop() {
 }
 
 async function applyPosition(lat, lng, fly = true) {
+  const seq = ++state.nearbySeq;
   state.userLat = lat;
   state.userLng = lng;
   updateUserMarker(lat, lng, fly);
+
   if (!inHongKong(lat, lng)) {
+    stopNearbyLoop();
+    state.nearbyStops = [];
+    state.nearbyUpdatedAt = null;
+    state.nearbyEtaPending = false;
+    els.nearbyList.innerHTML = "";
     setNearbyStatus(t("tooFar"));
+    renderNearbyMeta();
     mapCtl.map.setView(HK_CENTER, 12);
     return;
   }
-  setNearbyStatus(t("loadingStops"));
-  await loadAllStops();
-  state.nearbyStops = nearestStops(lat, lng);
-  if (!state.nearbyStops.length) {
-    setNearbyStatus(t("noNearby"));
-    return;
+
+  setNearbyStatus(t("loadingStops"), { loading: true });
+  try {
+    await loadAllStops();
+    if (seq !== state.nearbySeq) return;
+
+    state.nearbyStops = nearestStops(lat, lng).map((stop) => ({
+      ...stop,
+      groups: null,
+    }));
+    state.nearbyUpdatedAt = null;
+    state.nearbyEtaPending = true;
+
+    if (!state.nearbyStops.length) {
+      setNearbyStatus(t("noNearby"));
+      renderNearbyMeta();
+      stopNearbyLoop();
+      return;
+    }
+
+    // Paint stops immediately so the panel never stays on a blank/loading screen
+    // while arrival times are still in flight.
+    setNearbyStatus("");
+    renderNearbyList();
+    renderNearbyMeta();
+    plotNearbyStops();
+    startNearbyLoop();
+
+    await refreshNearbyEtas(seq);
+    if (seq !== state.nearbySeq) return;
+    if (state.stops.length) renderStops();
+  } catch (error) {
+    if (seq !== state.nearbySeq) return;
+    console.error(error);
+    state.nearbyEtaPending = false;
+    if (!state.nearbyStops.length) {
+      setNearbyStatus(t("loadError"));
+      els.nearbyList.innerHTML = "";
+    } else {
+      setNearbyStatus("");
+      renderNearbyList();
+    }
+    renderNearbyMeta();
   }
-  setNearbyStatus("");
-  await refreshNearbyEtas();
-  startNearbyLoop();
-  if (state.stops.length) renderStops();
 }
 
 function handleGeoError(error) {
@@ -1026,7 +1146,9 @@ function requestLocation(fly = true) {
     setNearbyStatus(t("locatingError"));
     return;
   }
-  setNearbyStatus(t("locating"));
+  if (state.userLat == null && !state.nearbyStops.length) {
+    setNearbyStatus(t("locating"), { loading: true });
+  }
   navigator.geolocation.getCurrentPosition(
     (pos) => applyPosition(pos.coords.latitude, pos.coords.longitude, fly),
     handleGeoError,
