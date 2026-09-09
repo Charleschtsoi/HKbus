@@ -232,6 +232,29 @@ button.ghost {
   font-size: 1.15rem;
 }
 
+.co-badge,
+.co-inline {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--sea-dark);
+  background: rgba(11, 79, 108, 0.1);
+  border: 1px solid rgba(11, 79, 108, 0.18);
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  vertical-align: middle;
+}
+
+.co-badge {
+  margin-bottom: 0.35rem;
+}
+
+.co-inline {
+  margin-left: 0.25rem;
+  font-weight: 650;
+}
+
 .panel-head {
   display: flex;
   justify-content: space-between;
