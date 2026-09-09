@@ -186,6 +186,8 @@ const mapCtl = {
   drawSeq: 0,
   gtfsMap: null,
   geoCache: null,
+  layoutTimer: null,
+  resizeObserver: null,
 };
 
 const els = {
@@ -1219,12 +1221,43 @@ function setTab(tab) {
 }
 
 function refreshMapAfterLayout() {
+  if (!mapCtl.map) return;
+
+  const run = () => {
+    mapCtl.map.invalidateSize({ animate: false, pan: false });
+  };
+
+  // Immediate + double-rAF covers same-frame CSS class toggles.
+  run();
   requestAnimationFrame(() => {
-    mapCtl.map?.invalidateSize();
+    run();
     requestAnimationFrame(() => {
-      mapCtl.map?.invalidateSize();
+      run();
       fitMapToContext({ animate: false });
     });
+  });
+
+  // Height uses a 0.28s CSS transition — Leaflet must remeasure after it ends.
+  clearTimeout(mapCtl.layoutTimer);
+  mapCtl.layoutTimer = setTimeout(() => {
+    run();
+    fitMapToContext({ animate: false });
+  }, 340);
+}
+
+function bindMapShellResize() {
+  if (!els.mapShell || mapCtl.resizeObserver || typeof ResizeObserver === "undefined") return;
+  mapCtl.resizeObserver = new ResizeObserver(() => {
+    if (!mapCtl.map) return;
+    clearTimeout(mapCtl.layoutTimer);
+    mapCtl.layoutTimer = setTimeout(() => {
+      mapCtl.map.invalidateSize({ animate: false, pan: false });
+    }, 60);
+  });
+  mapCtl.resizeObserver.observe(els.mapShell);
+  els.mapShell.addEventListener("transitionend", (event) => {
+    if (event.propertyName !== "height" && event.propertyName !== "min-height") return;
+    refreshMapAfterLayout();
   });
 }
 
@@ -1337,8 +1370,12 @@ function initMap() {
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19,
+    updateWhenIdle: false,
+    updateWhenZooming: true,
   }).addTo(mapCtl.map);
   mapCtl.stopLayer = L.layerGroup().addTo(mapCtl.map);
+  bindMapShellResize();
+  refreshMapAfterLayout();
 }
 
 function refreshMapLabels() {
@@ -1802,8 +1839,11 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", () => {
-  if (!mapCtl.map) return;
-  mapCtl.map.invalidateSize();
+  refreshMapAfterLayout();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshMapAfterLayout();
 });
 
 initMap();
@@ -1811,6 +1851,7 @@ applyLang();
 updateMapExpandUi();
 renderAccountChrome();
 renderFavorites();
+refreshMapAfterLayout();
 
 (async () => {
   if (window.HKBusAccount) {
