@@ -1,12 +1,14 @@
-const API = "https://data.etabus.gov.hk/v1/transport/kmb";
+const KMB_API = "https://data.etabus.gov.hk/v1/transport/kmb";
+const CTB_API = "https://rt.data.gov.hk/v2/transport/citybus";
 const WAYPOINTS_URL = "https://hkbus.github.io/route-waypoints";
 const FAVORITES_KEY = "hk-arrivals-favorites";
 const LANG_KEY = "hk-arrivals-lang";
-const STOPS_KEY = "hk-arrivals-stops-v1";
+const STOPS_KEY = "hk-arrivals-stops-v2";
 const HK_CENTER = [22.3193, 114.1694];
-const NEARBY_LIMIT = 8;
+const NEARBY_LIMIT = 10;
 const NEARBY_RADIUS_M = 500;
 const NEARBY_FALLBACK_M = 1200;
+const CTB_ETA_CONCURRENCY = 6;
 
 const I18N = {
   tc: {
@@ -24,8 +26,8 @@ const I18N = {
     search: "搜尋",
     favorites: "常用車站",
     back: "← 返回路線",
-    footer: "到站資料來自香港政府開放數據，約每分鐘更新。本頁並非任何巴士公司的官方應用程式。",
-    placeholder: "例如 1A、104、B1",
+    footer: "到站資料來自香港政府開放數據（九巴／龍運／城巴），約每分鐘更新。本頁並非任何巴士公司的官方應用程式。",
+    placeholder: "例如 A31、A11、1、104",
     loadingRoutes: "載入路線中…",
     loadingStops: "載入車站中…",
     locating: "正在取得你的位置…",
@@ -36,7 +38,7 @@ const I18N = {
     loadingEtas: "載入到站時間中…",
     refreshing: "更新中…",
     nearbyTitle: "附近車站",
-    noRoute: "找不到呢條路線。試下 1A、104、B1。",
+    noRoute: "找不到呢條路線。試下 A31、A11、1、104。",
     pickDirection: "選擇方向",
     toward: "往",
     special: "特別班",
@@ -52,6 +54,8 @@ const I18N = {
     loadError: "載入失敗，請再試一次。",
     you: "你",
     stop: "車站",
+    coKmb: "九巴／龍運",
+    coCtb: "城巴",
     accountGuest: "訪客",
     accountTitle: "帳戶（可選）",
     accountLead: "登入後可同步常用車站。唔登入都可以用，資料會留喺呢部裝置（唔係 cookie）。",
@@ -91,8 +95,8 @@ const I18N = {
     search: "Search",
     favorites: "Saved stops",
     back: "← Back to route",
-    footer: "Arrival times come from Hong Kong government open data, updated about every minute. This is not an official app of any bus company.",
-    placeholder: "e.g. 1A, 104, B1",
+    footer: "Arrival times come from Hong Kong government open data (KMB / LWB / Citybus), updated about every minute. This is not an official app of any bus company.",
+    placeholder: "e.g. A31, A11, 1, 104",
     loadingRoutes: "Loading routes…",
     loadingStops: "Loading stops…",
     locating: "Finding your location…",
@@ -103,7 +107,7 @@ const I18N = {
     loadingEtas: "Loading arrival times…",
     refreshing: "Updating…",
     nearbyTitle: "Nearby stops",
-    noRoute: "No matching route. Try 1A, 104, or B1.",
+    noRoute: "No matching route. Try A31, A11, 1, or 104.",
     pickDirection: "Choose a direction",
     toward: "to",
     special: "Special",
@@ -119,6 +123,8 @@ const I18N = {
     loadError: "Could not load data. Please try again.",
     you: "You",
     stop: "Stop",
+    coKmb: "KMB / LWB",
+    coCtb: "Citybus",
     accountGuest: "Guest",
     accountTitle: "Account (optional)",
     accountLead: "Sign in to sync saved stops. You can keep using the app as a guest — favorites stay on this device (local storage, not cookies).",
@@ -269,6 +275,32 @@ function origDest(route) {
     orig: publicText(state.lang === "en" ? route.orig_en : route.orig_tc),
     dest: publicText(state.lang === "en" ? route.dest_en : route.dest_tc),
   };
+}
+
+function companyOf(item) {
+  return String(item?.co || "KMB").toUpperCase() === "CTB" ? "CTB" : "KMB";
+}
+
+function companyLabel(co) {
+  return companyOf({ co }) === "CTB" ? t("coCtb") : t("coKmb");
+}
+
+function stopKey(co, stopId) {
+  return `${companyOf({ co })}:${stopId}`;
+}
+
+function routeVariantKey(variant) {
+  return `${companyOf(variant)}|${variant.route}|${variant.bound}|${variant.service_type}`;
+}
+
+function sameVariant(a, b) {
+  if (!a || !b) return false;
+  return (
+    companyOf(a) === companyOf(b) &&
+    a.route === b.route &&
+    a.bound === b.bound &&
+    String(a.service_type) === String(b.service_type)
+  );
 }
 
 function boundPath(bound) {
@@ -434,10 +466,56 @@ async function fetchJson(url) {
   return res.json();
 }
 
+function normalizeKmbRoutes(rows) {
+  return (rows || []).map((row) => ({
+    ...row,
+    co: "KMB",
+    service_type: String(row.service_type ?? "1"),
+  }));
+}
+
+function normalizeCtbRoutes(rows) {
+  const out = [];
+  for (const row of rows || []) {
+    out.push({
+      co: "CTB",
+      route: row.route,
+      bound: "O",
+      service_type: "1",
+      orig_en: row.orig_en,
+      orig_tc: row.orig_tc,
+      dest_en: row.dest_en,
+      dest_tc: row.dest_tc,
+    });
+    out.push({
+      co: "CTB",
+      route: row.route,
+      bound: "I",
+      service_type: "1",
+      orig_en: row.dest_en,
+      orig_tc: row.dest_tc,
+      dest_en: row.orig_en,
+      dest_tc: row.orig_tc,
+    });
+  }
+  return out;
+}
+
 async function loadRoutes() {
   if (state.routes.length) return;
-  const json = await fetchJson(`${API}/route`);
-  state.routes = json.data || [];
+  const results = await Promise.allSettled([
+    fetchJson(`${KMB_API}/route`),
+    fetchJson(`${CTB_API}/route/CTB`),
+  ]);
+  const routes = [];
+  if (results[0].status === "fulfilled") {
+    routes.push(...normalizeKmbRoutes(results[0].value.data));
+  }
+  if (results[1].status === "fulfilled") {
+    routes.push(...normalizeCtbRoutes(results[1].value.data));
+  }
+  if (!routes.length) throw new Error("No routes loaded");
+  state.routes = routes;
 }
 
 function setStatus(text) {
@@ -487,10 +565,18 @@ function searchRoutes(query) {
     if (aExact !== bExact) return aExact - bExact;
     if (a.route.length !== b.route.length) return a.route.length - b.route.length;
     if (a.route !== b.route) return a.route.localeCompare(b.route, "en", { numeric: true });
+    if (companyOf(a) !== companyOf(b)) return companyOf(a).localeCompare(companyOf(b));
     if (a.bound !== b.bound) return a.bound.localeCompare(b.bound);
     return Number(a.service_type) - Number(b.service_type);
   });
   return matches;
+}
+
+function routeHasMultipleCompanies(routeNo) {
+  const cos = new Set(
+    state.routes.filter((r) => r.route === routeNo).map((r) => companyOf(r))
+  );
+  return cos.size > 1;
 }
 
 function renderVariants() {
@@ -498,26 +584,78 @@ function renderVariants() {
   els.variants.hidden = false;
   els.variantsTitle.textContent = `${routeNo} · ${t("pickDirection")}`;
   els.variantList.innerHTML = "";
+  const showCo = routeHasMultipleCompanies(routeNo) || state.variants.some((v) => companyOf(v) === "CTB");
   state.variants.forEach((variant) => {
     const { orig, dest } = origDest(variant);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "card-btn";
-    if (
-      state.selectedVariant &&
-      state.selectedVariant.bound === variant.bound &&
-      state.selectedVariant.service_type === variant.service_type
-    ) {
-      btn.classList.add("active");
-    }
+    if (sameVariant(state.selectedVariant, variant)) btn.classList.add("active");
     const extra =
       String(variant.service_type) !== "1" ? ` · ${t("special")} ${variant.service_type}` : "";
-    btn.innerHTML = `<div class="route-no">${escapeHtml(variant.route)}${escapeHtml(extra)}</div>
+    const coHtml = showCo
+      ? `<div class="co-badge">${escapeHtml(companyLabel(variant.co))}</div>`
+      : "";
+    btn.innerHTML = `${coHtml}<div class="route-no">${escapeHtml(variant.route)}${escapeHtml(extra)}</div>
       <div>${escapeHtml(orig)} → ${escapeHtml(dest)}</div>
       <div class="muted">${escapeHtml(t("toward"))} ${escapeHtml(dest)}</div>`;
     btn.addEventListener("click", () => selectVariant(variant));
     els.variantList.appendChild(btn);
   });
+}
+
+async function fetchRouteStops(variant) {
+  const co = companyOf(variant);
+  if (co === "CTB") {
+    const json = await fetchJson(
+      `${CTB_API}/route-stop/CTB/${encodeURIComponent(variant.route)}/${boundPath(variant.bound)}`
+    );
+    return (json.data || []).map((row) => ({
+      ...row,
+      co: "CTB",
+      service_type: "1",
+      detail: state.stopsById.get(stopKey("CTB", row.stop)) || null,
+    }));
+  }
+  const json = await fetchJson(
+    `${KMB_API}/route-stop/${encodeURIComponent(variant.route)}/${boundPath(variant.bound)}/${variant.service_type}`
+  );
+  return (json.data || []).map((row) => ({
+    ...row,
+    co: "KMB",
+    detail: state.stopsById.get(stopKey("KMB", row.stop)) || null,
+  }));
+}
+
+async function hydrateCtbStopDetails(stops) {
+  const missing = stops.filter((s) => !s.detail);
+  if (!missing.length) return stops;
+  const queue = [...missing];
+  const workers = Array.from({ length: Math.min(CTB_ETA_CONCURRENCY, queue.length) }, async () => {
+    while (queue.length) {
+      const row = queue.shift();
+      try {
+        const json = await fetchJson(`${CTB_API}/stop/${encodeURIComponent(row.stop)}`);
+        const data = json.data || {};
+        if (!data.stop) continue;
+        const detail = {
+          co: "CTB",
+          stop: data.stop,
+          name_tc: data.name_tc,
+          name_en: data.name_en,
+          lat: Number(data.lat),
+          long: Number(data.long),
+          routes: [],
+        };
+        state.stopsById.set(stopKey("CTB", detail.stop), detail);
+        row.detail = detail;
+      } catch {
+        /* ignore missing stop */
+      }
+    }
+  });
+  await Promise.all(workers);
+  return stops;
 }
 
 async function selectVariant(variant) {
@@ -534,14 +672,9 @@ async function selectVariant(variant) {
   updateMapCaption();
   try {
     await loadAllStops();
-    const json = await fetchJson(
-      `${API}/route-stop/${variant.route}/${boundPath(variant.bound)}/${variant.service_type}`
-    );
-    const rows = json.data || [];
-    state.stops = rows.map((row) => ({
-      ...row,
-      detail: state.stopsById.get(row.stop) || null,
-    }));
+    let rows = await fetchRouteStops(variant);
+    if (companyOf(variant) === "CTB") rows = await hydrateCtbStopDetails(rows);
+    state.stops = rows;
     renderStops();
     await drawRouteOnMap(state.stops);
     updateMapCaption();
@@ -610,7 +743,7 @@ function renderStops() {
 
 function favoriteKey(stop) {
   const v = state.selectedVariant;
-  return `${v.route}|${v.bound}|${v.service_type}|${stop.stop}`;
+  return `${companyOf(v)}|${v.route}|${v.bound}|${v.service_type}|${stop.stop}`;
 }
 
 function isFavorite(stop) {
@@ -625,13 +758,17 @@ function renderFavorites() {
     btn.type = "button";
     btn.className = "chip";
     const label = state.lang === "en" ? item.nameEn : item.nameTc;
-    btn.textContent = `${item.route} · ${label}`;
+    const co = item.co ? ` · ${companyLabel(item.co)}` : "";
+    btn.textContent = `${item.route}${co} · ${label}`;
     btn.addEventListener("click", async () => {
       setTab("search");
       els.input.value = item.route;
-      await showRoute(item.route);
+      await showRoute(item.route, item.co);
       const variant = state.variants.find(
-        (v) => v.bound === item.bound && String(v.service_type) === String(item.serviceType)
+        (v) =>
+          companyOf(v) === companyOf(item) &&
+          v.bound === item.bound &&
+          String(v.service_type) === String(item.serviceType)
       );
       if (variant) {
         await selectVariant(variant);
@@ -652,6 +789,7 @@ function toggleFavorite() {
   } else {
     state.favorites.unshift({
       key,
+      co: companyOf(state.selectedVariant),
       route: state.selectedVariant.route,
       bound: state.selectedVariant.bound,
       serviceType: state.selectedVariant.service_type,
@@ -673,7 +811,7 @@ function renderEtaHeading() {
   const stopName = stop.detail ? nameOf(stop.detail) : stop.stop;
   const { dest } = origDest(variant);
   els.etaTitle.textContent = `${variant.route} · ${stopName}`;
-  els.etaMeta.textContent = `${t("toward")} ${dest}`;
+  els.etaMeta.textContent = `${companyLabel(variant.co)} · ${t("toward")} ${dest}`;
   els.favBtn.textContent = isFavorite(stop) ? "★" : "☆";
 }
 
@@ -701,9 +839,15 @@ async function loadEta() {
   const variant = state.selectedVariant;
   if (!stop || !variant) return;
   try {
-    const json = await fetchJson(
-      `${API}/eta/${stop.stop}/${variant.route}/${variant.service_type}`
-    );
+    const co = companyOf(variant);
+    const json =
+      co === "CTB"
+        ? await fetchJson(
+            `${CTB_API}/eta/CTB/${encodeURIComponent(stop.stop)}/${encodeURIComponent(variant.route)}`
+          )
+        : await fetchJson(
+            `${KMB_API}/eta/${encodeURIComponent(stop.stop)}/${encodeURIComponent(variant.route)}/${variant.service_type}`
+          );
     const rows = (json.data || []).filter((row) => row.dir === variant.bound);
     if (!rows.length) {
       els.etaList.innerHTML = `<p class="muted">${t("noEta")}</p>`;
@@ -750,7 +894,7 @@ function selectStop(stop) {
   els.eta.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-async function showRoute(query) {
+async function showRoute(query, preferredCo = null) {
   const matches = searchRoutes(query);
   if (!matches.length) {
     setStatus(t("noRoute"));
@@ -760,8 +904,17 @@ async function showRoute(query) {
     return;
   }
   setStatus("");
-  state.selectedRoute = matches[0].route;
-  state.variants = state.routes.filter((r) => r.route === state.selectedRoute);
+  const preferred = preferredCo
+    ? matches.find((r) => companyOf(r) === companyOf({ co: preferredCo }))
+    : null;
+  state.selectedRoute = (preferred || matches[0]).route;
+  const routeMatches = state.routes.filter((r) => r.route === state.selectedRoute);
+  if (preferredCo) {
+    const filtered = routeMatches.filter((r) => companyOf(r) === companyOf({ co: preferredCo }));
+    state.variants = filtered.length ? filtered : routeMatches;
+  } else {
+    state.variants = routeMatches;
+  }
   state.selectedVariant = null;
   state.stops = [];
   state.selectedStop = null;
@@ -796,22 +949,49 @@ async function loadAllStops() {
       const age = cached?.savedAt ? Date.now() - cached.savedAt : Infinity;
       if (cached?.stops?.length && age < 20 * 60 * 60 * 1000) {
         state.allStops = cached.stops;
-        state.stopsById = new Map(cached.stops.map((s) => [s.stop, s]));
+        state.stopsById = new Map(cached.stops.map((s) => [stopKey(s.co, s.stop), s]));
         return;
       }
     } catch {
       /* ignore bad cache */
     }
-    const json = await fetchJson(`${API}/stop`);
-    const stops = (json.data || []).map((s) => ({
-      stop: s.stop,
-      name_tc: s.name_tc,
-      name_en: s.name_en,
-      lat: Number(s.lat),
-      long: Number(s.long),
-    }));
+
+    const results = await Promise.allSettled([
+      fetchJson(`${KMB_API}/stop`),
+      fetchJson("ctb-stops.json"),
+    ]);
+
+    const stops = [];
+    if (results[0].status === "fulfilled") {
+      for (const s of results[0].value.data || []) {
+        stops.push({
+          co: "KMB",
+          stop: s.stop,
+          name_tc: s.name_tc,
+          name_en: s.name_en,
+          lat: Number(s.lat),
+          long: Number(s.long),
+          routes: null,
+        });
+      }
+    }
+    if (results[1].status === "fulfilled") {
+      for (const s of results[1].value || []) {
+        stops.push({
+          co: "CTB",
+          stop: s.stop,
+          name_tc: s.name_tc,
+          name_en: s.name_en,
+          lat: Number(s.lat),
+          long: Number(s.long),
+          routes: Array.isArray(s.routes) ? s.routes : [],
+        });
+      }
+    }
+    if (!stops.length) throw new Error("No stops loaded");
+
     state.allStops = stops;
-    state.stopsById = new Map(stops.map((s) => [s.stop, s]));
+    state.stopsById = new Map(stops.map((s) => [stopKey(s.co, s.stop), s]));
     try {
       localStorage.setItem(STOPS_KEY, JSON.stringify({ savedAt: Date.now(), stops }));
     } catch {
@@ -826,15 +1006,16 @@ async function loadAllStops() {
   }
 }
 
-function groupStopEta(rows) {
+function groupStopEta(rows, co = "KMB") {
   const groups = new Map();
   for (const row of rows) {
-    const key = `${row.route}|${row.dir}|${row.dest_tc}`;
+    const key = `${co}|${row.route}|${row.dir}|${row.dest_tc || row.dest_en || ""}`;
     if (!groups.has(key)) {
       groups.set(key, {
+        co,
         route: row.route,
         dir: row.dir,
-        service_type: row.service_type,
+        service_type: row.service_type || "1",
         dest_tc: row.dest_tc,
         dest_en: row.dest_en,
         etas: [],
@@ -852,18 +1033,57 @@ function groupStopEta(rows) {
     .sort((a, b) => (a.nextMins ?? 9999) - (b.nextMins ?? 9999));
 }
 
+async function mapPool(items, limit, worker) {
+  const results = new Array(items.length);
+  let index = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) || 0 }, async () => {
+    while (index < items.length) {
+      const current = index++;
+      results[current] = await worker(items[current], current);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+async function fetchCtbStopEta(stop) {
+  const routes = [...new Set(stop.routes || [])].slice(0, 12);
+  if (!routes.length) return [];
+  const batches = await mapPool(routes, CTB_ETA_CONCURRENCY, async (route) => {
+    try {
+      const json = await fetchJson(
+        `${CTB_API}/eta/CTB/${encodeURIComponent(stop.stop)}/${encodeURIComponent(route)}`
+      );
+      return json.data || [];
+    } catch {
+      return [];
+    }
+  });
+  return groupStopEta(batches.flat(), "CTB");
+}
+
+async function fetchKmbStopEta(stop) {
+  try {
+    const json = await fetchJson(`${KMB_API}/stop-eta/${encodeURIComponent(stop.stop)}`);
+    return groupStopEta(json.data || [], "KMB");
+  } catch {
+    return [];
+  }
+}
+
 async function refreshNearbyEtas(seq = state.nearbySeq) {
   if (!state.nearbyStops.length) return;
   state.nearbyEtaPending = true;
   renderNearbyMeta();
 
-  const stopsSnapshot = state.nearbyStops.map((stop) => stop.stop);
+  const stopsSnapshot = state.nearbyStops.map((stop) => stopKey(stop.co, stop.stop));
   try {
     const results = await Promise.all(
       state.nearbyStops.map(async (stop) => {
         try {
-          const json = await fetchJson(`${API}/stop-eta/${stop.stop}`);
-          return { ...stop, groups: groupStopEta(json.data || []) };
+          const groups =
+            companyOf(stop) === "CTB" ? await fetchCtbStopEta(stop) : await fetchKmbStopEta(stop);
+          return { ...stop, groups };
         } catch {
           return { ...stop, groups: stop.groups ?? [] };
         }
@@ -873,7 +1093,7 @@ async function refreshNearbyEtas(seq = state.nearbySeq) {
     if (seq !== state.nearbySeq) return;
     const stillSame =
       results.length === stopsSnapshot.length &&
-      results.every((stop, i) => stop.stop === stopsSnapshot[i]);
+      results.every((stop, i) => stopKey(stop.co, stop.stop) === stopsSnapshot[i]);
     if (!stillSame) return;
 
     state.nearbyStops = results;
@@ -912,8 +1132,9 @@ function renderNearbyList() {
   state.nearbyStops.forEach((stop) => {
     const card = document.createElement("article");
     card.className = "stop-card";
-    card.dataset.stopId = stop.stop;
-    if (state.selectedNearbyStopId === stop.stop) card.classList.add("active");
+    const stopId = stopKey(stop.co, stop.stop);
+    card.dataset.stopId = stopId;
+    if (state.selectedNearbyStopId === stopId) card.classList.add("active");
     const name = nameOf(stop);
     const metres = Math.round(stop.distance);
     const etasLoading = stop.groups == null;
@@ -932,9 +1153,9 @@ function renderNearbyList() {
         .map((group) => {
           const wait = formatWait(group.nextMins);
           const dest = state.lang === "en" ? group.dest_en : group.dest_tc;
-          return `<button type="button" class="route-row" data-route="${escapeHtml(group.route)}" data-dir="${escapeHtml(group.dir)}" data-service="${escapeHtml(group.service_type)}" data-stop="${escapeHtml(stop.stop)}">
+          return `<button type="button" class="route-row" data-co="${escapeHtml(group.co || stop.co)}" data-route="${escapeHtml(group.route)}" data-dir="${escapeHtml(group.dir)}" data-service="${escapeHtml(group.service_type || "1")}" data-stop="${escapeHtml(stop.stop)}">
               <div>
-                <div class="route-no">${escapeHtml(group.route)}</div>
+                <div class="route-no">${escapeHtml(group.route)} <span class="co-inline">${escapeHtml(companyLabel(group.co || stop.co))}</span></div>
                 <div class="muted">${escapeHtml(t("toward"))} ${escapeHtml(dest)}</div>
               </div>
               <div class="minutes">${escapeHtml(wait.label)}<span>${escapeHtml(wait.unit)}</span></div>
@@ -946,11 +1167,11 @@ function renderNearbyList() {
     }
     card.innerHTML = `<header>
         <strong>${escapeHtml(name)}</strong>
-        <span class="distance">${metres} ${escapeHtml(t("metres"))}</span>
+        <span class="distance">${metres} ${escapeHtml(t("metres"))} · ${escapeHtml(companyLabel(stop.co))}</span>
       </header>
       <div class="eta-list">${routesHtml}</div>`;
     card.querySelector("header").addEventListener("click", () => {
-      state.selectedNearbyStopId = stop.stop;
+      state.selectedNearbyStopId = stopId;
       renderNearbyList();
       focusNearbyStop(stop);
     });
@@ -964,13 +1185,16 @@ function renderNearbyList() {
   });
 }
 
-async function openNearbyRoute({ route, dir, service, stop }) {
+async function openNearbyRoute({ co, route, dir, service, stop }) {
   setTab("search");
   els.input.value = route;
   await loadRoutes();
-  await showRoute(route);
+  await showRoute(route, co);
   const variant = state.variants.find(
-    (v) => v.bound === dir && String(v.service_type) === String(service)
+    (v) =>
+      companyOf(v) === companyOf({ co }) &&
+      v.bound === dir &&
+      String(v.service_type) === String(service || "1")
   );
   if (variant) {
     await selectVariant(variant);
@@ -1138,15 +1362,15 @@ function plotNearbyStops() {
   const bounds = [];
   if (state.userLat != null) bounds.push([state.userLat, state.userLng]);
   state.nearbyStops.forEach((stop) => {
-    const active = stop.stop === state.selectedNearbyStopId;
+    const active = stopKey(stop.co, stop.stop) === state.selectedNearbyStopId;
     const marker = L.marker([stop.lat, stop.long], { icon: stopIcon(active) });
-    marker.bindPopup(nameOf(stop));
+    marker.bindPopup(`${nameOf(stop)} · ${companyLabel(stop.co)}`);
     marker.on("click", () => {
-      state.selectedNearbyStopId = stop.stop;
+      state.selectedNearbyStopId = stopKey(stop.co, stop.stop);
       setTab("nearby");
       renderNearbyList();
       const card = [...els.nearbyList.children].find((node) =>
-        node.querySelector(`[data-stop="${stop.stop}"]`)
+        node.querySelector(`[data-stop="${stop.stop}"][data-co="${companyOf(stop)}"]`)
       );
       card?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
@@ -1269,10 +1493,19 @@ async function fetchWaypointGeo(gtfsId, dir) {
 
 async function officialRoutePath(variant) {
   if (!variant) return null;
-  const cacheKey = `${variant.route}|${variant.bound}|${variant.service_type}`;
+  const co = companyOf(variant);
+  const cacheKey = routeVariantKey(variant);
   if (mapCtl.geoCache?.has(cacheKey)) return mapCtl.geoCache.get(cacheKey);
   const ids = await loadGtfsMap();
-  const gtfsId = ids[cacheKey] || ids[`${variant.route}|${variant.bound}|1`];
+  const gtfsId =
+    ids[cacheKey] ||
+    ids[`${co}|${variant.route}|${variant.bound}|1`] ||
+    (co === "KMB"
+      ? ids[`LWB|${variant.route}|${variant.bound}|${variant.service_type}`] ||
+        ids[`LWB|${variant.route}|${variant.bound}|1`] ||
+        ids[`${variant.route}|${variant.bound}|${variant.service_type}`] ||
+        ids[`${variant.route}|${variant.bound}|1`]
+      : null);
   if (!gtfsId) return null;
   const points = await fetchWaypointGeo(gtfsId, variant.bound === "I" ? "I" : "O");
   if (points) {
@@ -1284,18 +1517,29 @@ async function officialRoutePath(variant) {
 
 async function osrmChunk(points) {
   const path = points.map(([lat, lng]) => `${lng},${lat}`).join(";");
-  const radiuses = points.map(() => 120).join(";");
-  const json = await fetchJson(
-    `https://router.project-osrm.org/route/v1/driving/${path}?overview=full&geometries=geojson&continue_straight=true&radiuses=${radiuses}`
-  );
-  if (json.code !== "Ok" || !json.routes?.[0]?.geometry?.coordinates) return [];
-  return json.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+  const radiuses = points.map(() => 250).join(";");
+  const hosts = [
+    "https://router.project-osrm.org",
+    "https://routing.openstreetmap.de/routed-car",
+  ];
+  for (const host of hosts) {
+    try {
+      const json = await fetchJson(
+        `${host}/route/v1/driving/${path}?overview=full&geometries=geojson&continue_straight=true&radiuses=${radiuses}`
+      );
+      if (json.code !== "Ok" || !json.routes?.[0]?.geometry?.coordinates) continue;
+      return json.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+    } catch {
+      /* try next host */
+    }
+  }
+  return [];
 }
 
 async function osrmFollowRoads(points) {
   if (points.length < 2) return [];
   const all = [];
-  const size = 10;
+  const size = 8;
   for (let i = 0; i < points.length - 1; i += size - 1) {
     const chunk = points.slice(i, i + size);
     let coords = [];
@@ -1305,7 +1549,19 @@ async function osrmFollowRoads(points) {
       coords = [];
     }
     if (coords.length < 2) {
-      coords = chunk;
+      // Try pairwise road snaps when the multi-stop chunk fails (common on long airport routes).
+      coords = [];
+      for (let j = 0; j < chunk.length - 1; j++) {
+        let pair = [];
+        try {
+          pair = await osrmChunk([chunk[j], chunk[j + 1]]);
+        } catch {
+          pair = [];
+        }
+        if (pair.length < 2) pair = [chunk[j], chunk[j + 1]];
+        if (coords.length) pair = pair.slice(1);
+        coords.push(...pair);
+      }
     }
     if (all.length) coords = coords.slice(1);
     all.push(...coords);
@@ -1325,24 +1581,35 @@ function paintPolyline(points) {
   fitRouteBounds(points);
 }
 
+function pathLooksSparse(path, stops) {
+  if (!path || path.length < 2) return true;
+  if (path.length <= stops.length + 2) return true;
+  return false;
+}
+
 async function drawRouteOnMap(stops) {
   const seq = ++mapCtl.drawSeq;
   const fallback = stopLatLngs(stops);
   clearRouteLine();
   drawRouteStopMarkers(stops);
   let path = fallback;
+  let usedOfficial = false;
   try {
     const official = await officialRoutePath(state.selectedVariant);
     if (seq !== mapCtl.drawSeq) return;
-    if (official && official.length > 10) path = official;
+    if (official && official.length > 10) {
+      path = official;
+      usedOfficial = true;
+    }
   } catch (error) {
     console.error(error);
   }
-  if (path === fallback || path.length <= fallback.length) {
+  // Prefer road-network geometry whenever official shapes are missing or too sparse.
+  if (!usedOfficial || pathLooksSparse(path, fallback)) {
     try {
       const road = await osrmFollowRoads(fallback);
       if (seq !== mapCtl.drawSeq) return;
-      if (road.length > 10) path = road;
+      if (road.length > Math.max(10, fallback.length)) path = road;
     } catch (error) {
       console.error(error);
     }
