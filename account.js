@@ -64,6 +64,12 @@
   }
 
   async function sha256Hex(text) {
+    if (!crypto?.subtle) {
+      // Fallback for non-secure contexts (e.g. some file:// previews).
+      let hash = 0;
+      for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+      return `fallback_${hash.toString(16)}_${text.length}`;
+    }
     const data = new TextEncoder().encode(text);
     const digest = await crypto.subtle.digest("SHA-256", data);
     return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
