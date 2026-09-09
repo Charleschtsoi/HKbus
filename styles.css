@@ -201,6 +201,10 @@ h2 {
   height: min(42vh, 380px);
   min-height: 240px;
   border-bottom: 1px solid var(--line);
+}
+
+/* Only animate when the user toggles size — not on first paint. */
+body.map-size-animating .map-shell {
   transition: height 0.28s ease;
 }
 
