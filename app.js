@@ -175,6 +175,7 @@ const state = {
   nearbyUpdatedAt: null,
   nearbyEtaPending: false,
   stopsLoadPromise: null,
+  routesLoadPromise: null,
   mapExpanded: true,
 };
 
@@ -505,21 +506,56 @@ function normalizeCtbRoutes(rows) {
   return out;
 }
 
-async function loadRoutes() {
-  if (state.routes.length) return;
-  const results = await Promise.allSettled([
-    fetchJson(`${KMB_API}/route`),
-    fetchJson(`${CTB_API}/route/CTB`),
-  ]);
-  const routes = [];
-  if (results[0].status === "fulfilled") {
-    routes.push(...normalizeKmbRoutes(results[0].value.data));
+async function loadRoutes({ force = false } = {}) {
+  if (!force && routesLookComplete(state.routes)) return;
+  if (state.routesLoadPromise) return state.routesLoadPromise;
+
+  state.routesLoadPromise = (async () => {
+    const results = await Promise.allSettled([
+      fetchJson(`${KMB_API}/route`),
+      fetchJson(`${CTB_API}/route/CTB`),
+    ]);
+    const routes = [];
+    if (results[0].status === "fulfilled") {
+      routes.push(...normalizeKmbRoutes(results[0].value.data));
+    } else {
+      console.error(results[0].reason);
+    }
+    if (results[1].status === "fulfilled") {
+      routes.push(...normalizeCtbRoutes(results[1].value.data));
+    } else {
+      console.error(results[1].reason);
+    }
+    if (!routes.length) throw new Error("No routes loaded");
+    state.routes = routes;
+  })();
+
+  try {
+    await state.routesLoadPromise;
+  } finally {
+    state.routesLoadPromise = null;
   }
-  if (results[1].status === "fulfilled") {
-    routes.push(...normalizeCtbRoutes(results[1].value.data));
+}
+
+function routesLookComplete(routes) {
+  if (!Array.isArray(routes) || routes.length < 400) return false;
+  let kmb = 0;
+  let ctb = 0;
+  for (const route of routes) {
+    const co = companyOf(route);
+    if (co === "KMB") kmb += 1;
+    else if (co === "CTB") ctb += 1;
   }
-  if (!routes.length) throw new Error("No routes loaded");
-  state.routes = routes;
+  // Avoid locking in a CTB-only (or tiny) list that makes KMB searches look "gone".
+  return kmb > 200 && ctb > 50;
+}
+
+function normalizeRouteQuery(query) {
+  return String(query || "")
+    .trim()
+    .replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xff10 + 0x30))
+    .replace(/[Ａ-Ｚａ-ｚ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xff21 + 0x41))
+    .toUpperCase();
 }
 
 function setStatus(text) {
@@ -560,15 +596,17 @@ function renderNearbyMeta() {
 }
 
 function searchRoutes(query) {
-  const q = query.trim().toUpperCase();
+  const q = normalizeRouteQuery(query);
   if (!q) return [];
-  const matches = state.routes.filter((r) => r.route.toUpperCase().includes(q));
+  const matches = state.routes.filter((r) => String(r.route || "").toUpperCase().includes(q));
   matches.sort((a, b) => {
-    const aExact = a.route.toUpperCase() === q ? 0 : a.route.toUpperCase().startsWith(q) ? 1 : 2;
-    const bExact = b.route.toUpperCase() === q ? 0 : b.route.toUpperCase().startsWith(q) ? 1 : 2;
+    const aRoute = String(a.route || "").toUpperCase();
+    const bRoute = String(b.route || "").toUpperCase();
+    const aExact = aRoute === q ? 0 : aRoute.startsWith(q) ? 1 : 2;
+    const bExact = bRoute === q ? 0 : bRoute.startsWith(q) ? 1 : 2;
     if (aExact !== bExact) return aExact - bExact;
-    if (a.route.length !== b.route.length) return a.route.length - b.route.length;
-    if (a.route !== b.route) return a.route.localeCompare(b.route, "en", { numeric: true });
+    if (aRoute.length !== bRoute.length) return aRoute.length - bRoute.length;
+    if (aRoute !== bRoute) return aRoute.localeCompare(bRoute, "en", { numeric: true });
     if (companyOf(a) !== companyOf(b)) return companyOf(a).localeCompare(companyOf(b));
     if (a.bound !== b.bound) return a.bound.localeCompare(b.bound);
     return Number(a.service_type) - Number(b.service_type);
@@ -807,7 +845,15 @@ function renderFavorites() {
     btn.addEventListener("click", async () => {
       setTab("search");
       els.input.value = item.route;
-      await showRoute(item.route, item.co);
+      try {
+        setStatus(t("loadingRoutes"));
+        await loadRoutes();
+        await showRoute(item.route, item.co);
+      } catch (error) {
+        setStatus(t("loadError"));
+        console.error(error);
+        return;
+      }
       const variant = state.variants.find(
         (v) =>
           companyOf(v) === companyOf(item) &&
@@ -947,6 +993,7 @@ function selectStop(stop) {
 }
 
 async function showRoute(query, preferredCo = null) {
+  await loadRoutes();
   const matches = searchRoutes(query);
   if (!matches.length) {
     setStatus(t("noRoute"));
@@ -1865,6 +1912,7 @@ function setTabFromButton(tab) {
 els.form.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
+    setStatus(t("loadingRoutes"));
     await loadRoutes();
     await showRoute(els.input.value);
   } catch (error) {
