@@ -17,6 +17,11 @@ const I18N = {
     tabNearby: "附近",
     tabSearch: "搜尋",
     locate: "定位",
+    expandMap: "放大地圖",
+    collapseMap: "收起地圖",
+    mapNearbyHint: "附近車站地圖",
+    mapRouteHint: "全螢幕睇清楚成條路線",
+    viewRouteMap: "放大睇路線",
     searchLabel: "路線編號",
     search: "搜尋",
     favorites: "常用車站",
@@ -30,6 +35,8 @@ const I18N = {
     locatingError: "未能取得位置。請檢查系統定位設定後再試。",
     tooFar: "你而家唔喺香港附近。地圖會顯示香港，你仍然可以搜路線。",
     noNearby: "附近未找到車站。試下走近多啲，或者用搜尋。",
+    loadingEtas: "載入到站時間中…",
+    refreshing: "更新中…",
     nearbyTitle: "附近車站",
     noRoute: "找不到呢條路線。試下 A31、A11、1、104。",
     pickDirection: "選擇方向",
@@ -49,6 +56,29 @@ const I18N = {
     stop: "車站",
     coKmb: "九巴／龍運",
     coCtb: "城巴",
+    accountGuest: "訪客",
+    accountTitle: "帳戶（可選）",
+    accountLead: "登入後可同步常用車站。唔登入都可以用，資料會留喺呢部裝置（唔係 cookie）。",
+    accountLocalMode: "而家係裝置帳戶模式：同一部裝置可以登入，跨裝置同步要設定 Firebase（見 config.example.js）。",
+    accountCloudMode: "已開啟雲端同步：登入後常用車站會跟住你嘅帳戶。",
+    accountSignedInLocal: "已登入（呢部裝置）",
+    accountSignedInCloud: "已登入（雲端同步）",
+    accountSyncGuest: "儲存於此裝置",
+    accountSyncLocal: "已連結帳戶 · 此裝置",
+    accountSyncCloud: "已同步到雲端帳戶",
+    email: "電郵",
+    password: "密碼",
+    mergeGuest: "登入時合併呢部裝置已儲存嘅常用車站",
+    signIn: "登入",
+    register: "建立帳戶",
+    signOut: "登出",
+    close: "關閉",
+    accountErrorEmail: "請輸入有效電郵。",
+    accountErrorPassword: "密碼至少 6 個字元。",
+    accountErrorExists: "呢個電郵已經註冊，試下直接登入。",
+    accountErrorNotFound: "搵唔到帳戶，試下建立新帳戶。",
+    accountErrorBadPass: "電郵或密碼不正確。",
+    accountErrorGeneric: "帳戶操作失敗，請再試一次。",
   },
   en: {
     title: "Arrivals",
@@ -56,6 +86,11 @@ const I18N = {
     tabNearby: "Nearby",
     tabSearch: "Search",
     locate: "Locate me",
+    expandMap: "Expand map",
+    collapseMap: "Collapse map",
+    mapNearbyHint: "Nearby stops map",
+    mapRouteHint: "See the full route clearly",
+    viewRouteMap: "Expand route map",
     searchLabel: "Route number",
     search: "Search",
     favorites: "Saved stops",
@@ -69,6 +104,8 @@ const I18N = {
     locatingError: "Could not read your location. Check system location settings and try again.",
     tooFar: "You do not appear to be near Hong Kong. The map stays on HK; you can still search routes.",
     noNearby: "No stops nearby. Walk closer, or search a route.",
+    loadingEtas: "Loading arrival times…",
+    refreshing: "Updating…",
     nearbyTitle: "Nearby stops",
     noRoute: "No matching route. Try A31, A11, 1, or 104.",
     pickDirection: "Choose a direction",
@@ -88,6 +125,29 @@ const I18N = {
     stop: "Stop",
     coKmb: "KMB / LWB",
     coCtb: "Citybus",
+    accountGuest: "Guest",
+    accountTitle: "Account (optional)",
+    accountLead: "Sign in to sync saved stops. You can keep using the app as a guest — favorites stay on this device (local storage, not cookies).",
+    accountLocalMode: "On-device accounts are active. Add Firebase in config.js (see config.example.js) to sync across devices.",
+    accountCloudMode: "Cloud sync is on. Signed-in favorites follow your account.",
+    accountSignedInLocal: "Signed in (this device)",
+    accountSignedInCloud: "Signed in (cloud sync)",
+    accountSyncGuest: "Saved on this device",
+    accountSyncLocal: "Linked to account · this device",
+    accountSyncCloud: "Synced to your cloud account",
+    email: "Email",
+    password: "Password",
+    mergeGuest: "Merge favorites already saved on this device when signing in",
+    signIn: "Sign in",
+    register: "Create account",
+    signOut: "Sign out",
+    close: "Close",
+    accountErrorEmail: "Enter a valid email.",
+    accountErrorPassword: "Password must be at least 6 characters.",
+    accountErrorExists: "That email is already registered. Try signing in.",
+    accountErrorNotFound: "No account found. Try creating one.",
+    accountErrorBadPass: "Incorrect email or password.",
+    accountErrorGeneric: "Account action failed. Please try again.",
   },
 };
 
@@ -110,6 +170,11 @@ const state = {
   nearbyStops: [],
   selectedNearbyStopId: null,
   watchId: null,
+  nearbySeq: 0,
+  nearbyUpdatedAt: null,
+  nearbyEtaPending: false,
+  stopsLoadPromise: null,
+  mapExpanded: false,
 };
 
 const mapCtl = {
@@ -129,8 +194,17 @@ const els = {
   status: document.getElementById("status"),
   langBtn: document.getElementById("lang-btn"),
   locateBtn: document.getElementById("locate-btn"),
+  expandMapBtn: document.getElementById("expand-map-btn"),
+  collapseMapBtn: document.getElementById("collapse-map-btn"),
+  mapShell: document.getElementById("map-shell"),
+  mapCaption: document.getElementById("map-caption"),
+  mapCaptionTitle: document.getElementById("map-caption-title"),
+  mapCaptionSub: document.getElementById("map-caption-sub"),
+  appMain: document.getElementById("app-main"),
+  viewRouteMapBtn: document.getElementById("view-route-map-btn"),
   nearbyPanel: document.getElementById("nearby-panel"),
   nearbyStatus: document.getElementById("nearby-status"),
+  nearbyMeta: document.getElementById("nearby-meta"),
   nearbyList: document.getElementById("nearby-list"),
   searchPanel: document.getElementById("search-panel"),
   tabNearby: document.getElementById("tab-nearby"),
@@ -150,6 +224,23 @@ const els = {
   etaList: document.getElementById("eta-list"),
   etaUpdated: document.getElementById("eta-updated"),
   favBtn: document.getElementById("fav-btn"),
+  accountBtn: document.getElementById("account-btn"),
+  accountDialog: document.getElementById("account-dialog"),
+  accountForm: document.getElementById("account-form"),
+  accountLead: document.getElementById("account-dialog-lead"),
+  accountModeHint: document.getElementById("account-mode-hint"),
+  accountSignedOut: document.getElementById("account-signed-out"),
+  accountSignedIn: document.getElementById("account-signed-in"),
+  accountEmail: document.getElementById("account-email"),
+  accountPassword: document.getElementById("account-password"),
+  accountMergeGuest: document.getElementById("account-merge-guest"),
+  accountError: document.getElementById("account-error"),
+  accountLoginBtn: document.getElementById("account-login-btn"),
+  accountRegisterBtn: document.getElementById("account-register-btn"),
+  accountLogoutBtn: document.getElementById("account-logout-btn"),
+  accountUserLine: document.getElementById("account-user-line"),
+  accountSyncLine: document.getElementById("account-sync-line"),
+  favoritesSyncNote: document.getElementById("favorites-sync-note"),
 };
 
 function t(key) {
@@ -217,6 +308,7 @@ function boundPath(bound) {
 }
 
 function readFavorites() {
+  if (window.HKBusAccount) return window.HKBusAccount.readGuestFavorites();
   try {
     const next = localStorage.getItem(FAVORITES_KEY);
     if (next) return JSON.parse(next);
@@ -227,8 +319,126 @@ function readFavorites() {
   }
 }
 
-function saveFavorites() {
+async function saveFavorites() {
+  if (window.HKBusAccount) {
+    try {
+      state.favorites = await window.HKBusAccount.saveFavorites(state.favorites);
+    } catch (error) {
+      console.error(error);
+      localStorage.setItem(FAVORITES_KEY, JSON.stringify(state.favorites));
+    }
+    renderAccountChrome();
+    return;
+  }
   localStorage.setItem(FAVORITES_KEY, JSON.stringify(state.favorites));
+}
+
+function accountErrorMessage(code) {
+  if (code === "email") return t("accountErrorEmail");
+  if (code === "password") return t("accountErrorPassword");
+  if (code === "exists") return t("accountErrorExists");
+  if (code === "notfound") return t("accountErrorNotFound");
+  if (code === "badpass") return t("accountErrorBadPass");
+  return t("accountErrorGeneric");
+}
+
+function renderAccountChrome() {
+  const user = window.HKBusAccount?.getUser?.() || null;
+  const cloud = Boolean(window.HKBusAccount?.cloudConfigured?.());
+  if (els.accountBtn) {
+    els.accountBtn.textContent = user ? user.email : t("accountGuest");
+    els.accountBtn.title = user
+      ? user.cloud
+        ? t("accountSignedInCloud")
+        : t("accountSignedInLocal")
+      : t("accountGuest");
+  }
+  if (els.favoritesSyncNote) {
+    if (user?.cloud) els.favoritesSyncNote.textContent = t("accountSyncCloud");
+    else if (user) els.favoritesSyncNote.textContent = t("accountSyncLocal");
+    else els.favoritesSyncNote.textContent = t("accountSyncGuest");
+  }
+  if (els.accountModeHint) {
+    els.accountModeHint.textContent = cloud ? t("accountCloudMode") : t("accountLocalMode");
+  }
+  if (els.accountSignedOut && els.accountSignedIn) {
+    els.accountSignedOut.hidden = Boolean(user);
+    els.accountSignedIn.hidden = !user;
+  }
+  if (user && els.accountUserLine) {
+    els.accountUserLine.textContent = user.email;
+  }
+  if (els.accountSyncLine) {
+    els.accountSyncLine.textContent = user?.cloud
+      ? t("accountSignedInCloud")
+      : user
+        ? t("accountSignedInLocal")
+        : "";
+  }
+}
+
+function openAccountDialog() {
+  if (!els.accountDialog) return;
+  renderAccountChrome();
+  if (els.accountError) {
+    els.accountError.hidden = true;
+    els.accountError.textContent = "";
+  }
+  if (els.accountPassword) els.accountPassword.value = "";
+  if (typeof els.accountDialog.showModal === "function") els.accountDialog.showModal();
+  else els.accountDialog.setAttribute("open", "open");
+}
+
+function closeAccountDialog() {
+  if (!els.accountDialog) return;
+  if (typeof els.accountDialog.close === "function") els.accountDialog.close();
+  else els.accountDialog.removeAttribute("open");
+}
+
+async function refreshFavoritesFromAccount() {
+  if (!window.HKBusAccount) return;
+  state.favorites = await window.HKBusAccount.loadFavorites();
+  renderFavorites();
+  renderEtaHeading();
+  renderAccountChrome();
+}
+
+async function handleAccountAuth(mode) {
+  if (!window.HKBusAccount) return;
+  const email = els.accountEmail?.value || "";
+  const password = els.accountPassword?.value || "";
+  const mergeGuest = Boolean(els.accountMergeGuest?.checked);
+  if (els.accountError) {
+    els.accountError.hidden = true;
+    els.accountError.textContent = "";
+  }
+  try {
+    if (mode === "register") {
+      state.favorites = await window.HKBusAccount.register(email, password, { mergeGuest });
+    } else {
+      state.favorites = await window.HKBusAccount.login(email, password, { mergeGuest });
+    }
+    renderFavorites();
+    renderEtaHeading();
+    renderAccountChrome();
+    closeAccountDialog();
+  } catch (error) {
+    const code = error?.message || "generic";
+    if (els.accountError) {
+      els.accountError.hidden = false;
+      els.accountError.textContent = accountErrorMessage(code);
+    }
+    console.error(error);
+  }
+}
+
+async function handleAccountLogout() {
+  if (!window.HKBusAccount) return;
+  state.favorites = await window.HKBusAccount.logout({ keepLocalCopy: true });
+  renderFavorites();
+  renderEtaHeading();
+  renderAccountChrome();
+  closeAccountDialog();
 }
 
 function applyLang() {
@@ -244,7 +454,10 @@ function applyLang() {
   if (state.stops.length) renderStops();
   if (state.selectedStop) renderEtaHeading();
   renderNearbyList();
+  renderNearbyMeta();
   refreshMapLabels();
+  updateMapExpandUi();
+  renderAccountChrome();
 }
 
 async function fetchJson(url) {
@@ -310,9 +523,36 @@ function setStatus(text) {
   els.status.textContent = text;
 }
 
-function setNearbyStatus(text) {
+function setNearbyStatus(text, { loading = false } = {}) {
   els.nearbyStatus.hidden = !text;
   els.nearbyStatus.textContent = text;
+  els.nearbyStatus.classList.toggle("is-loading", Boolean(text) && loading);
+}
+
+function renderNearbyMeta() {
+  if (!els.nearbyMeta) return;
+  if (!state.nearbyStops.length) {
+    els.nearbyMeta.hidden = true;
+    els.nearbyMeta.textContent = "";
+    return;
+  }
+  if (state.nearbyEtaPending && !state.nearbyUpdatedAt) {
+    els.nearbyMeta.hidden = false;
+    els.nearbyMeta.textContent = t("loadingEtas");
+    return;
+  }
+  if (state.nearbyEtaPending && state.nearbyUpdatedAt) {
+    els.nearbyMeta.hidden = false;
+    els.nearbyMeta.textContent = t("refreshing");
+    return;
+  }
+  if (state.nearbyUpdatedAt) {
+    els.nearbyMeta.hidden = false;
+    els.nearbyMeta.textContent = `${t("updated")} ${formatClock(state.nearbyUpdatedAt.toISOString())}`;
+    return;
+  }
+  els.nearbyMeta.hidden = true;
+  els.nearbyMeta.textContent = "";
 }
 
 function searchRoutes(query) {
@@ -428,6 +668,8 @@ async function selectVariant(variant) {
   const { dest } = origDest(variant);
   els.stopsTitle.textContent = `${variant.route} ${t("toward")} ${dest}`;
   els.stopList.innerHTML = `<p class="muted">${t("loadingStops")}</p>`;
+  ensureViewRouteMapButton();
+  updateMapCaption();
   try {
     await loadAllStops();
     let rows = await fetchRouteStops(variant);
@@ -435,6 +677,7 @@ async function selectVariant(variant) {
     state.stops = rows;
     renderStops();
     await drawRouteOnMap(state.stops);
+    updateMapCaption();
   } catch (error) {
     els.stopList.innerHTML = `<p class="muted">${t("loadError")}</p>`;
     console.error(error);
@@ -553,6 +796,7 @@ function toggleFavorite() {
       stopId: stop.stop,
       nameTc: stop.detail?.name_tc || stop.stop,
       nameEn: stop.detail?.name_en || stop.stop,
+      updatedAt: new Date().toISOString(),
     });
   }
   saveFavorites();
@@ -697,58 +941,68 @@ function inHongKong(lat, lng) {
 
 async function loadAllStops() {
   if (state.allStops.length) return;
+  if (state.stopsLoadPromise) return state.stopsLoadPromise;
+
+  state.stopsLoadPromise = (async () => {
+    try {
+      const cached = JSON.parse(localStorage.getItem(STOPS_KEY) || "null");
+      const age = cached?.savedAt ? Date.now() - cached.savedAt : Infinity;
+      if (cached?.stops?.length && age < 20 * 60 * 60 * 1000) {
+        state.allStops = cached.stops;
+        state.stopsById = new Map(cached.stops.map((s) => [stopKey(s.co, s.stop), s]));
+        return;
+      }
+    } catch {
+      /* ignore bad cache */
+    }
+
+    const results = await Promise.allSettled([
+      fetchJson(`${KMB_API}/stop`),
+      fetchJson("ctb-stops.json"),
+    ]);
+
+    const stops = [];
+    if (results[0].status === "fulfilled") {
+      for (const s of results[0].value.data || []) {
+        stops.push({
+          co: "KMB",
+          stop: s.stop,
+          name_tc: s.name_tc,
+          name_en: s.name_en,
+          lat: Number(s.lat),
+          long: Number(s.long),
+          routes: null,
+        });
+      }
+    }
+    if (results[1].status === "fulfilled") {
+      for (const s of results[1].value || []) {
+        stops.push({
+          co: "CTB",
+          stop: s.stop,
+          name_tc: s.name_tc,
+          name_en: s.name_en,
+          lat: Number(s.lat),
+          long: Number(s.long),
+          routes: Array.isArray(s.routes) ? s.routes : [],
+        });
+      }
+    }
+    if (!stops.length) throw new Error("No stops loaded");
+
+    state.allStops = stops;
+    state.stopsById = new Map(stops.map((s) => [stopKey(s.co, s.stop), s]));
+    try {
+      localStorage.setItem(STOPS_KEY, JSON.stringify({ savedAt: Date.now(), stops }));
+    } catch {
+      /* storage full */
+    }
+  })();
+
   try {
-    const cached = JSON.parse(localStorage.getItem(STOPS_KEY) || "null");
-    const age = cached?.savedAt ? Date.now() - cached.savedAt : Infinity;
-    if (cached?.stops?.length && age < 20 * 60 * 60 * 1000) {
-      state.allStops = cached.stops;
-      state.stopsById = new Map(cached.stops.map((s) => [stopKey(s.co, s.stop), s]));
-      return;
-    }
-  } catch {
-    /* ignore bad cache */
-  }
-
-  const results = await Promise.allSettled([
-    fetchJson(`${KMB_API}/stop`),
-    fetchJson("ctb-stops.json"),
-  ]);
-
-  const stops = [];
-  if (results[0].status === "fulfilled") {
-    for (const s of results[0].value.data || []) {
-      stops.push({
-        co: "KMB",
-        stop: s.stop,
-        name_tc: s.name_tc,
-        name_en: s.name_en,
-        lat: Number(s.lat),
-        long: Number(s.long),
-        routes: null,
-      });
-    }
-  }
-  if (results[1].status === "fulfilled") {
-    for (const s of results[1].value || []) {
-      stops.push({
-        co: "CTB",
-        stop: s.stop,
-        name_tc: s.name_tc,
-        name_en: s.name_en,
-        lat: Number(s.lat),
-        long: Number(s.long),
-        routes: Array.isArray(s.routes) ? s.routes : [],
-      });
-    }
-  }
-  if (!stops.length) throw new Error("No stops loaded");
-
-  state.allStops = stops;
-  state.stopsById = new Map(stops.map((s) => [stopKey(s.co, s.stop), s]));
-  try {
-    localStorage.setItem(STOPS_KEY, JSON.stringify({ savedAt: Date.now(), stops }));
-  } catch {
-    /* storage full */
+    await state.stopsLoadPromise;
+  } finally {
+    state.stopsLoadPromise = null;
   }
 }
 
@@ -817,17 +1071,41 @@ async function fetchKmbStopEta(stop) {
   }
 }
 
-async function refreshNearbyEtas() {
-  const results = await Promise.all(
-    state.nearbyStops.map(async (stop) => {
-      const groups =
-        companyOf(stop) === "CTB" ? await fetchCtbStopEta(stop) : await fetchKmbStopEta(stop);
-      return { ...stop, groups };
-    })
-  );
-  state.nearbyStops = results;
-  renderNearbyList();
-  plotNearbyStops();
+async function refreshNearbyEtas(seq = state.nearbySeq) {
+  if (!state.nearbyStops.length) return;
+  state.nearbyEtaPending = true;
+  renderNearbyMeta();
+
+  const stopsSnapshot = state.nearbyStops.map((stop) => stopKey(stop.co, stop.stop));
+  try {
+    const results = await Promise.all(
+      state.nearbyStops.map(async (stop) => {
+        try {
+          const groups =
+            companyOf(stop) === "CTB" ? await fetchCtbStopEta(stop) : await fetchKmbStopEta(stop);
+          return { ...stop, groups };
+        } catch {
+          return { ...stop, groups: stop.groups ?? [] };
+        }
+      })
+    );
+
+    if (seq !== state.nearbySeq) return;
+    const stillSame =
+      results.length === stopsSnapshot.length &&
+      results.every((stop, i) => stopKey(stop.co, stop.stop) === stopsSnapshot[i]);
+    if (!stillSame) return;
+
+    state.nearbyStops = results;
+    state.nearbyUpdatedAt = new Date();
+    renderNearbyList();
+    plotNearbyStops();
+  } finally {
+    if (seq === state.nearbySeq) {
+      state.nearbyEtaPending = false;
+      renderNearbyMeta();
+    }
+  }
 }
 
 function nearestStops(lat, lng) {
@@ -855,27 +1133,38 @@ function renderNearbyList() {
     const card = document.createElement("article");
     card.className = "stop-card";
     const stopId = stopKey(stop.co, stop.stop);
+    card.dataset.stopId = stopId;
     if (state.selectedNearbyStopId === stopId) card.classList.add("active");
     const name = nameOf(stop);
     const metres = Math.round(stop.distance);
+    const etasLoading = stop.groups == null;
     const routes = (stop.groups || [])
       .filter((group) => group.nextMins != null)
       .slice(0, 6);
-    const routesHtml = routes.length
-      ? routes
-          .map((group) => {
-            const wait = formatWait(group.nextMins);
-            const dest = state.lang === "en" ? group.dest_en : group.dest_tc;
-            return `<button type="button" class="route-row" data-co="${escapeHtml(group.co || stop.co)}" data-route="${escapeHtml(group.route)}" data-dir="${escapeHtml(group.dir)}" data-service="${escapeHtml(group.service_type || "1")}" data-stop="${escapeHtml(stop.stop)}">
+    let routesHtml;
+    if (etasLoading) {
+      routesHtml = `<div class="eta-skeleton" aria-hidden="true">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+          <div class="skeleton-line"></div>
+        </div>`;
+    } else if (routes.length) {
+      routesHtml = routes
+        .map((group) => {
+          const wait = formatWait(group.nextMins);
+          const dest = state.lang === "en" ? group.dest_en : group.dest_tc;
+          return `<button type="button" class="route-row" data-co="${escapeHtml(group.co || stop.co)}" data-route="${escapeHtml(group.route)}" data-dir="${escapeHtml(group.dir)}" data-service="${escapeHtml(group.service_type || "1")}" data-stop="${escapeHtml(stop.stop)}">
               <div>
                 <div class="route-no">${escapeHtml(group.route)} <span class="co-inline">${escapeHtml(companyLabel(group.co || stop.co))}</span></div>
                 <div class="muted">${escapeHtml(t("toward"))} ${escapeHtml(dest)}</div>
               </div>
               <div class="minutes">${escapeHtml(wait.label)}<span>${escapeHtml(wait.unit)}</span></div>
             </button>`;
-          })
-          .join("")
-      : `<p class="muted">${t("noEta")}</p>`;
+        })
+        .join("");
+    } else {
+      routesHtml = `<p class="muted">${t("noEta")}</p>`;
+    }
     card.innerHTML = `<header>
         <strong>${escapeHtml(name)}</strong>
         <span class="distance">${metres} ${escapeHtml(t("metres"))} · ${escapeHtml(companyLabel(stop.co))}</span>
@@ -920,12 +1209,108 @@ function setTab(tab) {
   els.tabSearch.classList.toggle("active", tab === "search");
   els.nearbyPanel.hidden = tab !== "nearby";
   els.searchPanel.hidden = tab !== "search";
-  requestAnimationFrame(() => mapCtl.map?.invalidateSize());
+  refreshMapAfterLayout();
+  updateMapCaption();
   if (tab === "nearby") {
     startNearbyLoop();
   } else {
     stopNearbyLoop();
   }
+}
+
+function refreshMapAfterLayout() {
+  requestAnimationFrame(() => {
+    mapCtl.map?.invalidateSize();
+    requestAnimationFrame(() => {
+      mapCtl.map?.invalidateSize();
+      fitMapToContext({ animate: false });
+    });
+  });
+}
+
+function currentRouteCaption() {
+  if (state.selectedVariant) {
+    const { dest } = origDest(state.selectedVariant);
+    return {
+      title: `${state.selectedVariant.route} ${t("toward")} ${dest}`,
+      sub: t("mapRouteHint"),
+    };
+  }
+  if (state.tab === "nearby" && state.nearbyStops.length) {
+    return { title: t("nearbyTitle"), sub: t("mapNearbyHint") };
+  }
+  return { title: t("title"), sub: t("mapNearbyHint") };
+}
+
+function updateMapCaption() {
+  if (!els.mapCaption) return;
+  const { title, sub } = currentRouteCaption();
+  els.mapCaptionTitle.textContent = title;
+  els.mapCaptionSub.textContent = sub;
+  els.mapCaption.hidden = !state.mapExpanded;
+}
+
+function updateMapExpandUi() {
+  const expanded = state.mapExpanded;
+  document.body.classList.toggle("map-expanded", expanded);
+  if (els.expandMapBtn) {
+    els.expandMapBtn.setAttribute("aria-pressed", expanded ? "true" : "false");
+    const label = expanded ? t("collapseMap") : t("expandMap");
+    const textNode = els.expandMapBtn.querySelector("[data-i18n]");
+    if (textNode) {
+      textNode.dataset.i18n = expanded ? "collapseMap" : "expandMap";
+      textNode.textContent = label;
+    }
+    const icon = els.expandMapBtn.querySelector(".map-btn-icon");
+    if (icon) icon.textContent = expanded ? "⤓" : "⛶";
+  }
+  if (els.collapseMapBtn) els.collapseMapBtn.textContent = t("collapseMap");
+  updateMapCaption();
+  ensureViewRouteMapButton();
+}
+
+function setMapExpanded(expanded) {
+  if (state.mapExpanded === expanded) {
+    refreshMapAfterLayout();
+    return;
+  }
+  state.mapExpanded = expanded;
+  updateMapExpandUi();
+  refreshMapAfterLayout();
+}
+
+function toggleMapExpanded() {
+  setMapExpanded(!state.mapExpanded);
+}
+
+function fitMapToContext({ animate = true } = {}) {
+  if (!mapCtl.map) return;
+  if (mapCtl.routeLine) {
+    mapCtl.map.fitBounds(mapCtl.routeLine.getBounds(), {
+      padding: state.mapExpanded ? [48, 48] : [30, 30],
+      maxZoom: state.mapExpanded ? 15 : 16,
+      animate,
+    });
+    return;
+  }
+  if (state.tab === "nearby" && state.nearbyStops.length) {
+    const bounds = [];
+    if (state.userLat != null) bounds.push([state.userLat, state.userLng]);
+    state.nearbyStops.forEach((stop) => bounds.push([stop.lat, stop.long]));
+    if (bounds.length > 1) {
+      mapCtl.map.fitBounds(bounds, {
+        padding: state.mapExpanded ? [40, 40] : [28, 28],
+        maxZoom: 17,
+        animate,
+      });
+    }
+  }
+}
+
+function ensureViewRouteMapButton() {
+  if (!els.viewRouteMapBtn) return;
+  els.viewRouteMapBtn.textContent = t("viewRouteMap");
+  els.viewRouteMapBtn.hidden = !state.selectedVariant || els.stops.hidden;
 }
 
 function userIcon() {
@@ -1033,7 +1418,10 @@ function fitRouteBounds(layerOrPoints) {
     : layerOrPoints.getBounds();
   if (!bounds.isValid()) return;
   if (state.userLat != null) bounds.extend([state.userLat, state.userLng]);
-  mapCtl.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+  mapCtl.map.fitBounds(bounds, {
+    padding: state.mapExpanded ? [48, 48] : [30, 30],
+    maxZoom: state.mapExpanded ? 15 : 16,
+  });
 }
 
 function drawRouteStopMarkers(stops) {
@@ -1244,9 +1632,10 @@ function focusNearbyStop(stop) {
 
 function startNearbyLoop() {
   stopNearbyLoop();
-  if (state.nearbyStops.length) {
-    state.nearbyTimer = setInterval(refreshNearbyEtas, 30000);
-  }
+  if (!state.nearbyStops.length || state.tab !== "nearby") return;
+  state.nearbyTimer = setInterval(() => {
+    refreshNearbyEtas(state.nearbySeq).catch((error) => console.error(error));
+  }, 30000);
 }
 
 function stopNearbyLoop() {
@@ -1257,25 +1646,71 @@ function stopNearbyLoop() {
 }
 
 async function applyPosition(lat, lng, fly = true) {
+  const seq = ++state.nearbySeq;
   state.userLat = lat;
   state.userLng = lng;
   updateUserMarker(lat, lng, fly);
+
   if (!inHongKong(lat, lng)) {
+    stopNearbyLoop();
+    state.nearbyStops = [];
+    state.nearbyUpdatedAt = null;
+    state.nearbyEtaPending = false;
+    els.nearbyList.innerHTML = "";
     setNearbyStatus(t("tooFar"));
+    renderNearbyMeta();
     mapCtl.map.setView(HK_CENTER, 12);
     return;
   }
-  setNearbyStatus(t("loadingStops"));
-  await loadAllStops();
-  state.nearbyStops = nearestStops(lat, lng);
-  if (!state.nearbyStops.length) {
-    setNearbyStatus(t("noNearby"));
-    return;
+
+  const softReload = state.allStops.length > 0 && state.nearbyStops.length > 0;
+  if (!softReload) setNearbyStatus(t("loadingStops"), { loading: true });
+  try {
+    await loadAllStops();
+    if (seq !== state.nearbySeq) return;
+
+    const previousGroups = new Map(
+      state.nearbyStops.map((stop) => [stop.stop, stop.groups])
+    );
+    state.nearbyStops = nearestStops(lat, lng).map((stop) => ({
+      ...stop,
+      // Keep prior ETAs on soft relocate so the list never blanks while refetching.
+      groups: previousGroups.has(stop.stop) ? previousGroups.get(stop.stop) : null,
+    }));
+    if (!softReload) state.nearbyUpdatedAt = null;
+    state.nearbyEtaPending = true;
+
+    if (!state.nearbyStops.length) {
+      setNearbyStatus(t("noNearby"));
+      renderNearbyMeta();
+      stopNearbyLoop();
+      return;
+    }
+
+    // Paint stops immediately so the panel never stays on a blank/loading screen
+    // while arrival times are still in flight.
+    setNearbyStatus("");
+    renderNearbyList();
+    renderNearbyMeta();
+    plotNearbyStops();
+    startNearbyLoop();
+
+    await refreshNearbyEtas(seq);
+    if (seq !== state.nearbySeq) return;
+    if (state.stops.length) renderStops();
+  } catch (error) {
+    if (seq !== state.nearbySeq) return;
+    console.error(error);
+    state.nearbyEtaPending = false;
+    if (!state.nearbyStops.length) {
+      setNearbyStatus(t("loadError"));
+      els.nearbyList.innerHTML = "";
+    } else {
+      setNearbyStatus("");
+      renderNearbyList();
+    }
+    renderNearbyMeta();
   }
-  setNearbyStatus("");
-  await refreshNearbyEtas();
-  startNearbyLoop();
-  if (state.stops.length) renderStops();
 }
 
 function handleGeoError(error) {
@@ -1289,7 +1724,9 @@ function requestLocation(fly = true) {
     setNearbyStatus(t("locatingError"));
     return;
   }
-  setNearbyStatus(t("locating"));
+  if (state.userLat == null && !state.nearbyStops.length) {
+    setNearbyStatus(t("locating"), { loading: true });
+  }
   navigator.geolocation.getCurrentPosition(
     (pos) => applyPosition(pos.coords.latitude, pos.coords.longitude, fly),
     handleGeoError,
@@ -1336,16 +1773,55 @@ els.backBtn.addEventListener("click", () => {
   els.eta.hidden = true;
   state.selectedStop = null;
   clearEtaTimer();
+  ensureViewRouteMapButton();
+  updateMapCaption();
 });
 
 els.favBtn.addEventListener("click", toggleFavorite);
+els.accountBtn?.addEventListener("click", openAccountDialog);
+els.accountLoginBtn?.addEventListener("click", () => handleAccountAuth("login"));
+els.accountRegisterBtn?.addEventListener("click", () => handleAccountAuth("register"));
+els.accountLogoutBtn?.addEventListener("click", () => handleAccountLogout());
+els.accountForm?.addEventListener("submit", (event) => {
+  const value = event.submitter?.value;
+  if (value === "cancel") return;
+  event.preventDefault();
+  handleAccountAuth("login");
+});
 els.locateBtn.addEventListener("click", () => requestLocation(true));
+els.expandMapBtn?.addEventListener("click", () => toggleMapExpanded());
+els.collapseMapBtn?.addEventListener("click", () => setMapExpanded(false));
+els.viewRouteMapBtn?.addEventListener("click", () => {
+  setMapExpanded(true);
+});
 els.tabNearby.addEventListener("click", () => setTabFromButton("nearby"));
 els.tabSearch.addEventListener("click", () => setTabFromButton("search"));
 
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.mapExpanded) setMapExpanded(false);
+});
+
+window.addEventListener("resize", () => {
+  if (!mapCtl.map) return;
+  mapCtl.map.invalidateSize();
+});
+
 initMap();
 applyLang();
+updateMapExpandUi();
+renderAccountChrome();
 renderFavorites();
+
+(async () => {
+  if (window.HKBusAccount) {
+    window.HKBusAccount.onAuthChange(async () => {
+      await refreshFavoritesFromAccount();
+    });
+    await window.HKBusAccount.init();
+    await refreshFavoritesFromAccount();
+  }
+})();
+
 loadRoutes().catch((error) => {
   setNearbyStatus(t("loadError"));
   console.error(error);
