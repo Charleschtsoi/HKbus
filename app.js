@@ -52,6 +52,29 @@ const I18N = {
     loadError: "載入失敗，請再試一次。",
     you: "你",
     stop: "車站",
+    accountGuest: "訪客",
+    accountTitle: "帳戶（可選）",
+    accountLead: "登入後可同步常用車站。唔登入都可以用，資料會留喺呢部裝置（唔係 cookie）。",
+    accountLocalMode: "而家係裝置帳戶模式：同一部裝置可以登入，跨裝置同步要設定 Firebase（見 config.example.js）。",
+    accountCloudMode: "已開啟雲端同步：登入後常用車站會跟住你嘅帳戶。",
+    accountSignedInLocal: "已登入（呢部裝置）",
+    accountSignedInCloud: "已登入（雲端同步）",
+    accountSyncGuest: "儲存於此裝置",
+    accountSyncLocal: "已連結帳戶 · 此裝置",
+    accountSyncCloud: "已同步到雲端帳戶",
+    email: "電郵",
+    password: "密碼",
+    mergeGuest: "登入時合併呢部裝置已儲存嘅常用車站",
+    signIn: "登入",
+    register: "建立帳戶",
+    signOut: "登出",
+    close: "關閉",
+    accountErrorEmail: "請輸入有效電郵。",
+    accountErrorPassword: "密碼至少 6 個字元。",
+    accountErrorExists: "呢個電郵已經註冊，試下直接登入。",
+    accountErrorNotFound: "搵唔到帳戶，試下建立新帳戶。",
+    accountErrorBadPass: "電郵或密碼不正確。",
+    accountErrorGeneric: "帳戶操作失敗，請再試一次。",
   },
   en: {
     title: "Arrivals",
@@ -96,6 +119,29 @@ const I18N = {
     loadError: "Could not load data. Please try again.",
     you: "You",
     stop: "Stop",
+    accountGuest: "Guest",
+    accountTitle: "Account (optional)",
+    accountLead: "Sign in to sync saved stops. You can keep using the app as a guest — favorites stay on this device (local storage, not cookies).",
+    accountLocalMode: "On-device accounts are active. Add Firebase in config.js (see config.example.js) to sync across devices.",
+    accountCloudMode: "Cloud sync is on. Signed-in favorites follow your account.",
+    accountSignedInLocal: "Signed in (this device)",
+    accountSignedInCloud: "Signed in (cloud sync)",
+    accountSyncGuest: "Saved on this device",
+    accountSyncLocal: "Linked to account · this device",
+    accountSyncCloud: "Synced to your cloud account",
+    email: "Email",
+    password: "Password",
+    mergeGuest: "Merge favorites already saved on this device when signing in",
+    signIn: "Sign in",
+    register: "Create account",
+    signOut: "Sign out",
+    close: "Close",
+    accountErrorEmail: "Enter a valid email.",
+    accountErrorPassword: "Password must be at least 6 characters.",
+    accountErrorExists: "That email is already registered. Try signing in.",
+    accountErrorNotFound: "No account found. Try creating one.",
+    accountErrorBadPass: "Incorrect email or password.",
+    accountErrorGeneric: "Account action failed. Please try again.",
   },
 };
 
@@ -172,6 +218,23 @@ const els = {
   etaList: document.getElementById("eta-list"),
   etaUpdated: document.getElementById("eta-updated"),
   favBtn: document.getElementById("fav-btn"),
+  accountBtn: document.getElementById("account-btn"),
+  accountDialog: document.getElementById("account-dialog"),
+  accountForm: document.getElementById("account-form"),
+  accountLead: document.getElementById("account-dialog-lead"),
+  accountModeHint: document.getElementById("account-mode-hint"),
+  accountSignedOut: document.getElementById("account-signed-out"),
+  accountSignedIn: document.getElementById("account-signed-in"),
+  accountEmail: document.getElementById("account-email"),
+  accountPassword: document.getElementById("account-password"),
+  accountMergeGuest: document.getElementById("account-merge-guest"),
+  accountError: document.getElementById("account-error"),
+  accountLoginBtn: document.getElementById("account-login-btn"),
+  accountRegisterBtn: document.getElementById("account-register-btn"),
+  accountLogoutBtn: document.getElementById("account-logout-btn"),
+  accountUserLine: document.getElementById("account-user-line"),
+  accountSyncLine: document.getElementById("account-sync-line"),
+  favoritesSyncNote: document.getElementById("favorites-sync-note"),
 };
 
 function t(key) {
@@ -213,6 +276,7 @@ function boundPath(bound) {
 }
 
 function readFavorites() {
+  if (window.HKBusAccount) return window.HKBusAccount.readGuestFavorites();
   try {
     const next = localStorage.getItem(FAVORITES_KEY);
     if (next) return JSON.parse(next);
@@ -223,8 +287,126 @@ function readFavorites() {
   }
 }
 
-function saveFavorites() {
+async function saveFavorites() {
+  if (window.HKBusAccount) {
+    try {
+      state.favorites = await window.HKBusAccount.saveFavorites(state.favorites);
+    } catch (error) {
+      console.error(error);
+      localStorage.setItem(FAVORITES_KEY, JSON.stringify(state.favorites));
+    }
+    renderAccountChrome();
+    return;
+  }
   localStorage.setItem(FAVORITES_KEY, JSON.stringify(state.favorites));
+}
+
+function accountErrorMessage(code) {
+  if (code === "email") return t("accountErrorEmail");
+  if (code === "password") return t("accountErrorPassword");
+  if (code === "exists") return t("accountErrorExists");
+  if (code === "notfound") return t("accountErrorNotFound");
+  if (code === "badpass") return t("accountErrorBadPass");
+  return t("accountErrorGeneric");
+}
+
+function renderAccountChrome() {
+  const user = window.HKBusAccount?.getUser?.() || null;
+  const cloud = Boolean(window.HKBusAccount?.cloudConfigured?.());
+  if (els.accountBtn) {
+    els.accountBtn.textContent = user ? user.email : t("accountGuest");
+    els.accountBtn.title = user
+      ? user.cloud
+        ? t("accountSignedInCloud")
+        : t("accountSignedInLocal")
+      : t("accountGuest");
+  }
+  if (els.favoritesSyncNote) {
+    if (user?.cloud) els.favoritesSyncNote.textContent = t("accountSyncCloud");
+    else if (user) els.favoritesSyncNote.textContent = t("accountSyncLocal");
+    else els.favoritesSyncNote.textContent = t("accountSyncGuest");
+  }
+  if (els.accountModeHint) {
+    els.accountModeHint.textContent = cloud ? t("accountCloudMode") : t("accountLocalMode");
+  }
+  if (els.accountSignedOut && els.accountSignedIn) {
+    els.accountSignedOut.hidden = Boolean(user);
+    els.accountSignedIn.hidden = !user;
+  }
+  if (user && els.accountUserLine) {
+    els.accountUserLine.textContent = user.email;
+  }
+  if (els.accountSyncLine) {
+    els.accountSyncLine.textContent = user?.cloud
+      ? t("accountSignedInCloud")
+      : user
+        ? t("accountSignedInLocal")
+        : "";
+  }
+}
+
+function openAccountDialog() {
+  if (!els.accountDialog) return;
+  renderAccountChrome();
+  if (els.accountError) {
+    els.accountError.hidden = true;
+    els.accountError.textContent = "";
+  }
+  if (els.accountPassword) els.accountPassword.value = "";
+  if (typeof els.accountDialog.showModal === "function") els.accountDialog.showModal();
+  else els.accountDialog.setAttribute("open", "open");
+}
+
+function closeAccountDialog() {
+  if (!els.accountDialog) return;
+  if (typeof els.accountDialog.close === "function") els.accountDialog.close();
+  else els.accountDialog.removeAttribute("open");
+}
+
+async function refreshFavoritesFromAccount() {
+  if (!window.HKBusAccount) return;
+  state.favorites = await window.HKBusAccount.loadFavorites();
+  renderFavorites();
+  renderEtaHeading();
+  renderAccountChrome();
+}
+
+async function handleAccountAuth(mode) {
+  if (!window.HKBusAccount) return;
+  const email = els.accountEmail?.value || "";
+  const password = els.accountPassword?.value || "";
+  const mergeGuest = Boolean(els.accountMergeGuest?.checked);
+  if (els.accountError) {
+    els.accountError.hidden = true;
+    els.accountError.textContent = "";
+  }
+  try {
+    if (mode === "register") {
+      state.favorites = await window.HKBusAccount.register(email, password, { mergeGuest });
+    } else {
+      state.favorites = await window.HKBusAccount.login(email, password, { mergeGuest });
+    }
+    renderFavorites();
+    renderEtaHeading();
+    renderAccountChrome();
+    closeAccountDialog();
+  } catch (error) {
+    const code = error?.message || "generic";
+    if (els.accountError) {
+      els.accountError.hidden = false;
+      els.accountError.textContent = accountErrorMessage(code);
+    }
+    console.error(error);
+  }
+}
+
+async function handleAccountLogout() {
+  if (!window.HKBusAccount) return;
+  state.favorites = await window.HKBusAccount.logout({ keepLocalCopy: true });
+  renderFavorites();
+  renderEtaHeading();
+  renderAccountChrome();
+  closeAccountDialog();
 }
 
 function applyLang() {
@@ -243,6 +425,7 @@ function applyLang() {
   renderNearbyMeta();
   refreshMapLabels();
   updateMapExpandUi();
+  renderAccountChrome();
 }
 
 async function fetchJson(url) {
@@ -475,6 +658,7 @@ function toggleFavorite() {
       stopId: stop.stop,
       nameTc: stop.detail?.name_tc || stop.stop,
       nameEn: stop.detail?.name_en || stop.stop,
+      updatedAt: new Date().toISOString(),
     });
   }
   saveFavorites();
@@ -1327,6 +1511,16 @@ els.backBtn.addEventListener("click", () => {
 });
 
 els.favBtn.addEventListener("click", toggleFavorite);
+els.accountBtn?.addEventListener("click", openAccountDialog);
+els.accountLoginBtn?.addEventListener("click", () => handleAccountAuth("login"));
+els.accountRegisterBtn?.addEventListener("click", () => handleAccountAuth("register"));
+els.accountLogoutBtn?.addEventListener("click", () => handleAccountLogout());
+els.accountForm?.addEventListener("submit", (event) => {
+  const value = event.submitter?.value;
+  if (value === "cancel") return;
+  event.preventDefault();
+  handleAccountAuth("login");
+});
 els.locateBtn.addEventListener("click", () => requestLocation(true));
 els.expandMapBtn?.addEventListener("click", () => toggleMapExpanded());
 els.collapseMapBtn?.addEventListener("click", () => setMapExpanded(false));
@@ -1348,7 +1542,19 @@ window.addEventListener("resize", () => {
 initMap();
 applyLang();
 updateMapExpandUi();
+renderAccountChrome();
 renderFavorites();
+
+(async () => {
+  if (window.HKBusAccount) {
+    window.HKBusAccount.onAuthChange(async () => {
+      await refreshFavoritesFromAccount();
+    });
+    await window.HKBusAccount.init();
+    await refreshFavoritesFromAccount();
+  }
+})();
+
 loadRoutes().catch((error) => {
   setNearbyStatus(t("loadError"));
   console.error(error);
