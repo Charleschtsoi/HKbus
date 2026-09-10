@@ -190,6 +190,7 @@ const mapCtl = {
   geoCache: null,
   layoutTimer: null,
   resizeObserver: null,
+  sizeAnimTimer: null,
 };
 
 const els = {
@@ -1423,10 +1424,19 @@ function updateMapExpandUi() {
   ensureViewRouteMapButton();
 }
 
-function setMapExpanded(expanded) {
+function setMapExpanded(expanded, { animate = true } = {}) {
   if (state.mapExpanded === expanded) {
     refreshMapAfterLayout();
     return;
+  }
+  if (animate) {
+    document.body.classList.add("map-size-animating");
+    clearTimeout(mapCtl.sizeAnimTimer);
+    mapCtl.sizeAnimTimer = setTimeout(() => {
+      document.body.classList.remove("map-size-animating");
+    }, 340);
+  } else {
+    document.body.classList.remove("map-size-animating");
   }
   state.mapExpanded = expanded;
   updateMapExpandUi();
