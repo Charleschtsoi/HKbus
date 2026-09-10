@@ -13,8 +13,8 @@ const CTB_ETA_CONCURRENCY = 6;
 
 const I18N = {
   tc: {
-    title: "候車",
-    subtitle: "香港巴士到站 · 附近車站 · 路線搜尋",
+    title: "站頭",
+    subtitle: "香港巴士站頭 · 附近車站 · 路線地圖",
     tabNearby: "附近",
     tabSearch: "搜尋",
     locate: "定位",
@@ -82,8 +82,8 @@ const I18N = {
     accountErrorGeneric: "帳戶操作失敗，請再試一次。",
   },
   en: {
-    title: "Arrivals",
-    subtitle: "Hong Kong bus times · nearby stops · route search",
+    title: "busStop",
+    subtitle: "Hong Kong bus stops · nearby · route map",
     tabNearby: "Nearby",
     tabSearch: "Search",
     locate: "Locate me",
@@ -449,7 +449,7 @@ async function handleAccountLogout() {
 
 function applyLang() {
   document.documentElement.lang = state.lang === "en" ? "en" : "zh-HK";
-  document.title = `${t("title")} · ${state.lang === "en" ? "Hong Kong bus arrivals" : "香港巴士到站"}`;
+  document.title = `${t("title")} · ${state.lang === "en" ? "Hong Kong bus map" : "香港巴士地圖"}`;
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });

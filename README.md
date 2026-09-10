@@ -1,10 +1,10 @@
-# 候車 (HKbus)
+# 站頭 (busStop)
 
-A lightweight Hong Kong bus arrivals map — nearby stops, route search, and a large road-following map so people can **see the whole bus route clearly**.
+A lightweight Hong Kong bus stop map — nearby stops, route search, and a large road-following map so people can **see the whole bus route clearly**.
 
 **Live demo:** [https://bus-hk.vercel.app/](https://bus-hk.vercel.app/)
 
-![候車 preview — route 948 on an expanded map with stop list and ETAs](docs/preview.png)
+![站頭 / busStop preview — route 948 on an expanded map with stop list and ETAs](docs/preview.png)
 
 ## Why this exists
 
